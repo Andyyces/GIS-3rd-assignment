@@ -58,6 +58,8 @@ pop <- raster(here("data","raw", "population_nld_2019-07-01_geotiff", "populatio
 
 ## Temperature
 
+(i dont know how to download the temp data from chelsa, so i just tried other source)
+
 ```{r API-process}
 
 # set API key 
