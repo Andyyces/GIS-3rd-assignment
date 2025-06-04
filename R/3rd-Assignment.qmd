@@ -1,5 +1,117 @@
 ---
 title: "3rd-Assignment"
+author: "Andrea Češková, Tobias Grüner, Tuan Linh Tran"
 format: html
+editor: visual
 ---
 
+```{r set-up, include=FALSE}
+library(pacman)
+
+pacman::p_load(
+  httr,
+ jsonlite,
+  ggplot2,
+ keyring,
+ ecmwfr,
+  dplyr,
+reticulate,
+  geodata,
+  sf,
+ rvest,
+  raster,
+  rnaturalearth,
+ rnaturalearthdata,
+ grid,
+ readr,
+ ggspatial,
+ gridExtra,
+ kableExtra,
+ ggrepel,
+ tidygeocoder,
+ osrm ,
+  here,
+  terra,
+  tidyr,
+  patchwork
+)
+here::i_am("R/3rd-Assignment.qmd")
+```
+
+# Introduction
+
+We examine the correlation between population density and temperature across different land use types in the Netherlands. Our goal is to understand how land use mediates the relationship between temperature and population.
+
+# Data
+
+## Administrative boundaries
+
+```{r}
+nld_2 <- st_read(here("data", "raw", "gadm41_NLD_shp", "gadm41_NLD_2.shp"))
+```
+
+## Population Density
+
+```{r}
+pop <- raster(here("data","raw", "population_nld_2019-07-01_geotiff", "population_nld_2019-07-01.tif"))
+```
+
+## Temperature
+
+```{r API-process}
+
+# set API key 
+key_set(
+  service  = "cds_api",
+  username = "linhtran01091310@gmail.com"
+)
+
+# now pull it back out:
+cds_api_key <- key_get(
+  service  = "cds",
+  username = "linhtran01091310@gmail.com"
+)
+
+# Export to environment variables for cdsapi, reticulate, or ecmwfr
+Sys.setenv(
+  CDSAPI_URL = "https://cds.climate.copernicus.eu/api",
+  CDSAPI_KEY = cds_api_key
+)
+```
+
+```{r}
+wf_set_key(
+  key  = cds_api_key
+)
+
+wf_get_key()
+request <- list(
+  dataset_short_name  = "reanalysis-era5-land",
+  product_type        = "reanalysis",
+  variable            = "2m_temperature",
+  year                = "2019",
+  month               = "07",
+  day                 = sprintf("%02d", 1:31),         # all July days
+  time                = sprintf("%02d:00", 0:23),       # hourly
+  area                = c(53.6, 3.2, 50.7, 7.2),        # N, W, S, E (Netherlands)
+  data_format         = "netcdf",                      # better for R
+  download_format     = "unarchived",
+  target              = "netherlands_july2019.nc"      # output filename
+)
+
+era5 <- wf_request(
+  request  = request,
+  transfer = TRUE,
+  path     = getwd()
+)
+```
+
+```{r}
+temp <- rast("D:/GIS assignment 3/GIS-3rd-assignment/R/netherlands_july2019.nc")
+```
+
+## Land Use
+
+```{r}
+
+```
