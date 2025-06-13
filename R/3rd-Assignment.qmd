@@ -47,31 +47,48 @@ We examine the correlation between population density and temperature across dif
 ## Administrative boundaries
 
 ```{r}
-nld_2 <- st_read(here("data", "raw", "gadm41_NLD_shp", "gadm41_NLD_2.shp"))
+# nld_2 <- st_read(here("data", "raw", "gadm41_NLD_shp", "gadm41_NLD_2.shp"))
+nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
+nld_2_sf <- st_as_sf(nld_2)
+
 ```
 
 ## Population Density
 
 ```{r}
-pop <- raster(here("data","raw", "population_nld_2019-07-01_geotiff", "population_nld_2019-07-01.tif"))
+# COMMENT TOBI: @Ling Where did you got the fine grained data from? I only found ~100m resolution for population density. However, the resolution of our temperature data set ist ~ 1km, so do we really need such fine grained data at this point? 
+
+# pop <- raster(here("data","raw", "population_nld_2019-07-01_geotiff", "population_nld_2019-07-01.tif"))
+
+# pop
+# plot(pop)
+url_pop <- "https://data.worldpop.org/GIS/Population/Global_2015_2030/R2024B/2019/NLD/v1/100m/constrained/nld_pop_2019_CN_100m_R2024B_v1.tif"
+
+download.file(url_pop, destfile = here("data", "raw", "nld_population_2019.tif"), mode = "wb")
+
+pop2 <- raster(here("data","raw", "nld_population_2019.tif"))
+plot(pop2)
+
+
 ```
 
 ## Temperature
 
 (i dont know how to download the temp data from chelsa, so i just tried other source)
+Tobi: Added download of CHELSA Data (at 1000m resolution)
 
 ```{r API-process}
 
 # set API key 
 key_set(
   service  = "cds_api",
-  username = "linhtran01091310@gmail.com"
+  username = "53eecd43-07c3-454f-bb2e-af40bea6d6eb"
 )
 
 # now pull it back out:
 cds_api_key <- key_get(
   service  = "cds",
-  username = "linhtran01091310@gmail.com"
+  username = "53eecd43-07c3-454f-bb2e-af40bea6d6eb"
 )
 
 # Export to environment variables for cdsapi, reticulate, or ecmwfr
@@ -112,8 +129,148 @@ era5 <- wf_request(
 temp <- rast("D:/GIS assignment 3/GIS-3rd-assignment/R/netherlands_july2019.nc")
 ```
 
+```{r CHELSA 2020}
+# (latest) Annual Data of 2020, resolution ~1km
+
+url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/annual/V2.1/bio01d/CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc"
+
+download.file(url, destfile = here("data", "raw", "CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc"), mode = "wb")
+
+temp <- rast(here("data", "raw", "CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc")) 
+
+temp_cropped <- crop(temp, nld_2)
+temp_masked <- mask(temp_cropped, nld_2)
+
+plot(temp_masked)
+
+
+# Plot for first impression
+temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+
+ggplot() +
+  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=tas)) +
+  scale_fill_viridis_c(option="viridis", name="Temperature") +
+  geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
+  theme_minimal()
+
+plot(temp_masked)
+```
+```{r CHELSA 1981-2005}
+# Annual Data of 1981-2005 (average),resolution ~1km
+
+url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/1981-2005/bio/CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"
+
+download.file(url, destfile = here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"), mode = "wb")
+temp <- rast(here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc")) 
+
+temp_cropped <- crop(temp, nld_2)
+temp_masked <- mask(temp_cropped, nld_2)
+
+plot(temp_masked)
+
+
+# Plot for first impression
+temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+
+ggplot() +
+  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=tas)) +
+  scale_fill_viridis_c(option="viridis", name="Temperature") +
+  geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
+  theme_minimal()
+
+plot(temp_masked)
+```
+
 ## Land Use
 
-```{r}
+```{r Land Use manual}
+# Download Land use data manual... 
+# url: https://land.copernicus.eu/en/products/corine-land-cover/clc2018#download
+# Download GPKG format, registration necessary...
 
+# I download the data as vector data as I would assume that it is easier for later calucaltion. But I haven't thought about it in detail.
+
+st_layers(here("data", "raw", "U2018_CLC2018_V2020_20u1.gpkg"))
+
+clc <- vect(here("data", "raw", "U2018_CLC2018_V2020_20u1.gpkg"), layer= "U2018_CLC2018_V2020_20u1")
+names(clc)
+head(names(clc))
+
+nld_2_etrs89 <- project(nld_2, crs(clc))
+
+clc_nl <- crop(clc, nld_2_etrs89)
+
+clc_nl_masked <- mask(clc_nl, nld_2_etrs89)
+
+clc_nl_final <- project(clc_nl_masked, "EPSG:4326")
+
+writeVector(clc_nl_final,"clc_netherlands_epsg3035.gpkg")
+```
+
+```{r Land Use import}
+# Fast way
+
+clc_nl <- st_read(here("data", "clc_netherlands_epsg3035.gpkg"))
+
+
+unique_codes <- unique(clc_nl$Code_18)
+labels <- clc_nl$Remark[match(unique_codes, clc_nl$Code_18)]
+
+palette_clc <- hsv(h = seq(0, 1, length.out = length(unique_codes)), s = 0.6, v = 0.9)
+names(palette_clc) <- as.character(unique_codes)
+
+plot(clc_nl["Code_18"],
+     col = palette_clc,
+     legend = FALSE,
+     axes = FALSE,
+     main = "CLC 2018 NL")
+
+```
+# Work in progress 
+```{r Land Use vector API}
+# I download the data as vector data as I would assume that it is easier for later calucaltion. But I haven't thought about it in detail.
+
+
+#1st step search for UUID of DataSet
+base_url <- "https://land.copernicus.eu/api/@search"
+
+page_size <- 25
+all_items <- list()
+page <- 1
+
+repeat {
+  url <- paste0(base_url,
+                "?portal_type=DataSet",
+                "&batch_size=", page_size,
+                "&b_start=", (page - 1) * page_size,
+                "&metadata_fields=UID",
+                "&metadata_fields=title",
+                "&metadata_fields=dataset_download_information"
+  )
+
+  response <- GET(url, accept("application/json"))
+
+  if (status_code(response) != 200) {
+    stop("Request failed on page ", page, ": ", status_code(response))
+  }
+
+  content_json <- fromJSON(content(response, as = "text", encoding = "UTF-8"), flatten = TRUE)
+
+  items <- content_json$items
+  if (length(items) == 0) break
+
+  all_items <- append(all_items, list(items))
+  message("Seite ", page, " geladen.")
+
+  page <- page + 1
+}
+
+# Alles zu einem DataFrame verbinden
+all_results <- bind_rows(all_items)
+
+results <-subset(all_results, grepl("corine", title, ignore.case = TRUE))
+results <-subset(all_results, grepl("clc", title, ignore.case = TRUE))
+
+uuid <- "9788d256594044d987828eb1e5b6e7b1"
+# Whats difference between corine and clc data set???
 ```

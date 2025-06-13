@@ -1,0 +1,173 @@
+---
+title: "3rd-Assignment"
+author: "Andrea Češková, Tobias Grüner, Tuan Linh Tran"
+format: html
+editor: visual
+---
+
+```{r set-up, include=FALSE}
+library(pacman)
+
+pacman::p_load(
+  httr,
+ jsonlite,
+  ggplot2,
+ keyring,
+ ecmwfr,
+  dplyr,
+reticulate,
+  geodata,
+  sf,
+ rvest,
+  raster,
+  rnaturalearth,
+ rnaturalearthdata,
+ grid,
+ readr,
+ ggspatial,
+ gridExtra,
+ kableExtra,
+ ggrepel,
+ tidygeocoder,
+ osrm ,
+  here,
+  terra,
+  tidyr,
+  patchwork
+)
+here::i_am("R/3rd-Assignment.qmd")
+```
+
+
+
+# Introduction
+
+We examine the correlation between population density and temperature across different land use types in the Netherlands. Our goal is to understand how land use mediates the relationship between temperature and population.
+
+# Data
+
+## Administrative boundaries
+
+
+
+```{r}
+# nld_2 <- st_read(here("data", "raw", "gadm41_NLD_shp", "gadm41_NLD_2.shp"))
+nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
+```
+
+
+
+## Population Density
+
+
+
+```{r}
+# COMMENT TOBI: @Ling Where did you got the fine grained data from? I only found ~100m resolution for population density. However, the resolution of our temperature data set ist ~ 1km, so do we really need such fine grained data at this point? 
+
+# pop <- raster(here("data","raw", "population_nld_2019-07-01_geotiff", "population_nld_2019-07-01.tif"))
+
+# pop
+# plot(pop)
+url_pop <- "https://data.worldpop.org/GIS/Population/Global_2015_2030/R2024B/2019/NLD/v1/100m/constrained/nld_pop_2019_CN_100m_R2024B_v1.tif"
+
+download.file(url_pop, destfile = here("data", "raw", "nld_population_2019.tif"), mode = "wb")
+
+pop2 <- raster(here("data","raw", "nld_population_2019.tif"))
+plot(pop2)
+
+
+```
+
+
+
+## Temperature
+
+(i dont know how to download the temp data from chelsa, so i just tried other source)
+
+
+
+```{r API-process}
+
+# set API key 
+key_set(
+  service  = "cds_api",
+  username = "53eecd43-07c3-454f-bb2e-af40bea6d6eb"
+)
+
+# now pull it back out:
+cds_api_key <- key_get(
+  service  = "cds",
+  username = "53eecd43-07c3-454f-bb2e-af40bea6d6eb"
+)
+
+# Export to environment variables for cdsapi, reticulate, or ecmwfr
+Sys.setenv(
+  CDSAPI_URL = "https://cds.climate.copernicus.eu/api",
+  CDSAPI_KEY = cds_api_key
+)
+```
+
+```{r}
+wf_set_key(
+  key  = cds_api_key
+)
+
+wf_get_key()
+request <- list(
+  dataset_short_name  = "reanalysis-era5-land",
+  product_type        = "reanalysis",
+  variable            = "2m_temperature",
+  year                = "2019",
+  month               = "07",
+  day                 = sprintf("%02d", 1:31),         # all July days
+  time                = sprintf("%02d:00", 0:23),       # hourly
+  area                = c(53.6, 3.2, 50.7, 7.2),        # N, W, S, E (Netherlands)
+  data_format         = "netcdf",                      # better for R
+  download_format     = "unarchived",
+  target              = "netherlands_july2019.nc"      # output filename
+)
+
+era5 <- wf_request(
+  request  = request,
+  transfer = TRUE,
+  path     = getwd()
+)
+```
+
+```{r}
+temp <- rast("D:/GIS assignment 3/GIS-3rd-assignment/R/netherlands_july2019.nc")
+```
+
+```{r CHELSA}
+temp <- rast(here("data", "raw", "CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc")) 
+
+temp_cropped <- crop(temp, nld_2)
+temp_masked <- crop(temp_cropped, nld_2)
+
+temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+
+ggplot() +
+  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=Barley)) +
+  scale_fill_viridis_c(option="viridis", name="Temperature") +
+  geom_sf(data=nld_2, fill=NA, color="black", size=0.5) +
+  coord_sf() +
+  labs(title="Yield of Barley Germany, 2020",
+       caption="Source: GADM, IFPRI Harvard Dataverse") +
+  theme_void() +
+  theme(
+  plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+  plot.subtitle = element_text(size=6, face="italic"))
+
+plot(temp_masked)
+```
+
+
+
+## Land Use
+
+
+
+```{r}
+
+```
+
