@@ -427,42 +427,42 @@ st_write(clc_nl, here("data", "clc_nl.gpkg"), delete_layer = TRUE)
 
 ### Overview over data sets
 
-+------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
-| DataSet                            | Automatic extraction | Format                       | Resolution                                 | Projection |
-+====================================+======================+==============================+============================================+============+
-| GADMN (admin. boundaries), Level 2 | Yes                  | Vector                       | \-                                         | WGS 84     |
-|                                    |                      |                              |                                            |            |
-|                                    |                      | nld_2: SpatVector (terra)    |                                            |            |
-|                                    |                      |                              |                                            |            |
-|                                    |                      | nld_2_sf: sf-Object          |                                            |            |
-+------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
-| CHELSA (temperature data)          | Yes                  | temp: SpatRaster (terra)     | Raster 0.008333333                         | WGS 84     |
-|                                    |                      |                              |                                            |            |
-| --\> Average temperature in 2019   |                      | temp_df: DataFrame           | \~ 930 m (North-South) x 570 m (East-West) |            |
-+------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
-| HDX (population density)           | Yes                  | Raster                       | 0.008333333                                | WGS 84     |
-|                                    |                      |                              |                                            |            |
-| 2019                               |                      | pop2: SpatRaster (terra)     | \~ 930 m (North-South) x 570 m (East-West) |            |
-+------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
-| Corine (Land Use)                  | Yes                  | Vector\                      |                                            | WGS 84     |
-|                                    |                      | clc_nl: SpatVector (terra)   |                                            |            |
-|                                    |                      |                              |                                            |            |
-|                                    |                      | clc_nl_sf: sf-object         |                                            |            |
-+------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
++------------------------------------+----------------------+----------------------------+--------------------------------------------+------------+
+| DataSet                            | Automatic extraction | Format                     | Resolution                                 | Projection |
++====================================+======================+============================+============================================+============+
+| GADMN (admin. boundaries), Level 2 | Yes                  | Vector                     | \-                                         | WGS 84     |
+|                                    |                      |                            |                                            |            |
+|                                    |                      | nld_2: SpatVector (terra)  |                                            |            |
+|                                    |                      |                            |                                            |            |
+|                                    |                      | nld_2_sf: sf-Object        |                                            |            |
++------------------------------------+----------------------+----------------------------+--------------------------------------------+------------+
+| CHELSA (temperature data)          | Yes                  | temp: SpatRaster (terra)   | Raster 0.008333333                         | WGS 84     |
+|                                    |                      |                            |                                            |            |
+| --\> Average temperature in 2019   |                      | temp_df: DataFrame         | \~ 930 m (North-South) x 570 m (East-West) |            |
++------------------------------------+----------------------+----------------------------+--------------------------------------------+------------+
+| HDX (population density)           | Yes                  | Raster                     | 0.008333333                                | WGS 84     |
+|                                    |                      |                            |                                            |            |
+| 2019                               |                      | pop2: SpatRaster (terra)   | \~ 930 m (North-South) x 570 m (East-West) |            |
++------------------------------------+----------------------+----------------------------+--------------------------------------------+------------+
+| Corine (Land Use)                  | Yes                  | Vector\                    | 0.008333333                                | WGS 84     |
+|                                    |                      | clc_nl: SpatVector (terra) |                                            |            |
+|                                    |                      |                            | \~ 930 m (North-South) x 570 m (East-West) |            |
+|                                    |                      | clc_nl_sf: sf-object       |                                            |            |
++------------------------------------+----------------------+----------------------------+--------------------------------------------+------------+
 
 ## Load downloaded data in memory
 
 ```{r load data sets}
 # Population density
 pop2 <- rast(here("data", "nld_population_2019.tif"))
-crs(pop2)
+
 # Administrive boundaries
 nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
 nld_2_sf <- st_as_sf(nld_2)
 
 # Temperature
 temp <- rast(here("data", "temp.nc"))
-temp_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+temp_df <- as.data.frame(temp, xy = TRUE, na.rm = TRUE)
 
 # Land Use
 clc_nl <- vect(here("data", "clc_nl.gpkg"))
@@ -476,14 +476,14 @@ ggplot() +
   theme_minimal()
 
 # Plot clc
-top_labels <- names(sort(tapply(clc_nl$Area_Ha, clc_nl$code_label, sum), decreasing = TRUE))[1:7]
-clc_nl$filtered_label <- ifelse(clc_nl$code_label %in% top_labels, clc_nl$code_label, "Others")
+top_labels <- names(sort(tapply(clc_nl_sf$Area_Ha, clc_nl_sf$code_label, sum), decreasing = TRUE))[1:7]
+clc_nl_sf$filtered_label <- ifelse(clc_nl_sf$code_label %in% top_labels, clc_nl_sf$code_label, "Others")
 
-palette_clc <- hsv(h = seq(0, 1-1/length(unique(clc_nl$filtered_label)), length.out = length(unique(clc_nl$filtered_label))),
+palette_clc <- hsv(h = seq(0, 1-1/length(unique(clc_nl_sf$filtered_label)), length.out = length(unique(clc_nl_sf$filtered_label))),
                    s = 0.6, v = 0.9)
 
-names(palette_clc) <- unique(clc_nl$filtered_label)
-ggplot(clc_nl) +
+names(palette_clc) <- unique(clc_nl_sf$filtered_label)
+ggplot(clc_nl_sf) +
   geom_sf(aes(fill = filtered_label), color = NA) +
   scale_fill_manual(values = c(palette_clc[top_labels], "Others" = "gray80")) +
   theme_minimal()
