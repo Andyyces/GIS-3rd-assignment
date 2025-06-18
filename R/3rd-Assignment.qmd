@@ -85,7 +85,7 @@ download.file(url_pop, destfile = here("data", "nld_population_2019.tif"), mode 
 ### Temperature
 
 ```{r CHELSA 2020}
-# (latest) Annual Data of 2020, resolution ~1km
+# (latest) Annual Data of 2019, resolution ~1km
 
 url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/annual/V2.1/bio01d/CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc"
 
@@ -96,7 +96,7 @@ temp <- rast(here("data", "raw", "CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc"))
 temp_cropped <- crop(temp, nld_2)
 temp_masked <- mask(temp_cropped, nld_2)
 
-writeCDF(temp_masked, here("data", "temp.nc"))
+writeCDF(temp_masked, here("data", "temp.nc"), overwrite=TRUE)
 
 temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
 
@@ -129,78 +129,6 @@ plot(temp_series_masked)
 ```
 
 ### Land Cover
-
-```{r LEGACY: Land Use import}
-# Fast way
-
-clc_nl <- st_read(here("data", "clc_netherlands_epsg3035.gpkg"))
-
-# Adding labels
-code_labels <- c(
-  "111" = "Continuous urban fabric",
-  "112" = "Discontinuous urban fabric",
-  "121" = "Industrial or commercial units",
-  "122" = "Road and rail networks and associated land",
-  "123" = "Port areas",
-  "124" = "Airports",
-  "131" = "Mineral extraction sites",
-  "132" = "Dump sites",
-  "133" = "Construction sites",
-  "141" = "Green urban areas",
-  "142" = "Sport and leisure facilities",
-  "211" = "Non-irrigated arable land",
-  "212" = "Permanently irrigated land",
-  "213" = "Rice fields",
-  "221" = "Vineyards",
-  "222" = "Fruit trees and berry plantations",
-  "223" = "Olive groves",
-  "231" = "Pastures",
-  "241" = "Annual crops associated with permanent crops",
-  "242" = "Complex cultivation patterns",
-  "243" = "Land principally occupied by agriculture, with significant areas of natural vegetation",
-  "244" = "Agro-forestry areas",
-  "311" = "Broad-leaved forest",
-  "312" = "Coniferous forest",
-  "313" = "Mixed forest",
-  "321" = "Natural grasslands",
-  "322" = "Moors and heathland",
-  "323" = "Sclerophyllous vegetation",
-  "324" = "Transitional woodland-shrub",
-  "331" = "Beaches, dunes, sands",
-  "332" = "Bare rocks",
-  "333" = "Sparsely vegetated areas",
-  "334" = "Burnt areas",
-  "335" = "Glaciers and perpetual snow",
-  "411" = "Inland marshes",
-  "412" = "Peat bogs",
-  "421" = "Salt marshes",
-  "422" = "Salines",
-  "423" = "Intertidal flats",
-  "511" = "Water courses",
-  "512" = "Water bodies",
-  "521" = "Coastal lagoons",
-  "522" = "Estuaries",
-  "523" = "Sea and ocean"
-)
-
-clc_nl$code_label <- code_labels[as.character(clc_nl$Code_18)]
-
-# Plot for first impression
-top_labels <- names(sort(tapply(clc_nl$Area_Ha, clc_nl$code_label, sum), decreasing = TRUE))[1:7]
-clc_nl$filtered_label <- ifelse(clc_nl$code_label %in% top_labels, clc_nl$code_label, "Others")
-
-palette_clc <- hsv(h = seq(0, 1-1/length(unique(clc_nl$filtered_label)), length.out = length(unique(clc_nl$filtered_label))),
-                   s = 0.6, v = 0.9)
-
-names(palette_clc) <- unique(clc_nl$filtered_label)
-
-ggplot(clc_nl) +
-  geom_sf(aes(fill = filtered_label), color = NA) +
-  scale_fill_manual(values = c(palette_clc[top_labels], "Others" = "gray80")) +
-  theme_minimal()
-
-
-```
 
 ```{r Land Use vector API}
 # I download the data as vector data as I would assume that it is easier for later calculation. But I haven't thought about it in detail.
@@ -235,7 +163,7 @@ repeat {
   if (length(items) == 0) break
 
   all_items <- append(all_items, list(items))
-  message("Seite ", page, " geladen.")
+  message("Page ", page, " loaded.")
 
   page <- page + 1
 }
