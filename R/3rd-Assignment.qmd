@@ -11,6 +11,7 @@ library(pacman)
 pacman::p_load(
   httr,
  jsonlite,
+ jose,
   ggplot2,
  keyring,
  ecmwfr,
@@ -44,13 +45,13 @@ We examine the correlation between population density and temperature across dif
 
 # Data
 
-## Administrative boundaries
+## Download and Pre-processing of Data
+### Administrative boundaries
 
-```{r}
-# nld_2 <- st_read(here("data", "raw", "gadm41_NLD_shp", "gadm41_NLD_2.shp"))
+```{r Administrative boundaries}
+# Administrive boundaries
 nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
 nld_2_sf <- st_as_sf(nld_2)
-
 ```
 
 ## Population Density
@@ -64,82 +65,24 @@ nld_2_sf <- st_as_sf(nld_2)
 # plot(pop)
 url_pop <- "https://data.worldpop.org/GIS/Population/Global_2015_2030/R2024B/2019/NLD/v1/100m/constrained/nld_pop_2019_CN_100m_R2024B_v1.tif"
 
-download.file(url_pop, destfile = here("data", "raw", "nld_population_2019.tif"), mode = "wb")
-
-pop2 <- raster(here("data","raw", "nld_population_2019.tif"))
-plot(pop2)
-
-
+download.file(url_pop, destfile = here("data", "nld_population_2019.tif"), mode = "wb")
 ```
 
 ## Temperature
 
-(i dont know how to download the temp data from chelsa, so i just tried other source)
-Tobi: Added download of CHELSA Data (at 1000m resolution)
-
-```{r API-process}
-
-# set API key 
-key_set(
-  service  = "cds_api",
-  username = "53eecd43-07c3-454f-bb2e-af40bea6d6eb"
-)
-
-# now pull it back out:
-cds_api_key <- key_get(
-  service  = "cds",
-  username = "53eecd43-07c3-454f-bb2e-af40bea6d6eb"
-)
-
-# Export to environment variables for cdsapi, reticulate, or ecmwfr
-Sys.setenv(
-  CDSAPI_URL = "https://cds.climate.copernicus.eu/api",
-  CDSAPI_KEY = cds_api_key
-)
-```
-
-```{r}
-wf_set_key(
-  key  = cds_api_key
-)
-
-wf_get_key()
-request <- list(
-  dataset_short_name  = "reanalysis-era5-land",
-  product_type        = "reanalysis",
-  variable            = "2m_temperature",
-  year                = "2019",
-  month               = "07",
-  day                 = sprintf("%02d", 1:31),         # all July days
-  time                = sprintf("%02d:00", 0:23),       # hourly
-  area                = c(53.6, 3.2, 50.7, 7.2),        # N, W, S, E (Netherlands)
-  data_format         = "netcdf",                      # better for R
-  download_format     = "unarchived",
-  target              = "netherlands_july2019.nc"      # output filename
-)
-
-era5 <- wf_request(
-  request  = request,
-  transfer = TRUE,
-  path     = getwd()
-)
-```
-
-```{r}
-temp <- rast("D:/GIS assignment 3/GIS-3rd-assignment/R/netherlands_july2019.nc")
-```
-
 ```{r CHELSA 2020}
 # (latest) Annual Data of 2020, resolution ~1km
 
-url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/annual/V2.1/bio01d/CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc"
+url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/annual/V2.1/bio01d/CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc"
 
-download.file(url, destfile = here("data", "raw", "CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc"), mode = "wb")
+download.file(url, destfile = here("data", "raw", "CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc"), mode = "wb")
 
-temp <- rast(here("data", "raw", "CHELSA_EUR11_obs_bio01d_2020_V.2.1.nc")) 
+temp <- rast(here("data", "raw", "CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc")) 
 
 temp_cropped <- crop(temp, nld_2)
 temp_masked <- mask(temp_cropped, nld_2)
+
+writeCDF(temp_masked, here("data", "temp.nc"))
 
 plot(temp_masked)
 
@@ -155,30 +98,31 @@ ggplot() +
 
 plot(temp_masked)
 ```
+
 ```{r CHELSA 1981-2005}
 # Annual Data of 1981-2005 (average),resolution ~1km
 
 url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/1981-2005/bio/CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"
 
 download.file(url, destfile = here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"), mode = "wb")
-temp <- rast(here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc")) 
+temp_series <- rast(here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc")) 
 
-temp_cropped <- crop(temp, nld_2)
-temp_masked <- mask(temp_cropped, nld_2)
+temp_series_cropped <- crop(temp_series, nld_2)
+temp_series_masked <- mask(temp_series_cropped, nld_2)
 
-plot(temp_masked)
+plot(temp_series_masked)
 
 
 # Plot for first impression
-temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+temp_series_masked_df <- as.data.frame(temp_series_masked$tas, xy = TRUE, na.rm = TRUE)
 
 ggplot() +
-  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=tas)) +
+  geom_raster(data=temp_series_masked_df, aes(x=x, y=y, fill=tas)) +
   scale_fill_viridis_c(option="viridis", name="Temperature") +
   geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
   theme_minimal()
 
-plot(temp_masked)
+plot(temp_series_masked)
 ```
 
 ## Land Use
@@ -188,7 +132,7 @@ plot(temp_masked)
 # url: https://land.copernicus.eu/en/products/corine-land-cover/clc2018#download
 # Download GPKG format, registration necessary...
 
-# I download the data as vector data as I would assume that it is easier for later calucaltion. But I haven't thought about it in detail.
+# I download the data as vector data as I would assume that it is easier for later calculation. But I haven't thought about it in detail.
 
 st_layers(here("data", "raw", "U2018_CLC2018_V2020_20u1.gpkg"))
 
@@ -212,23 +156,77 @@ writeVector(clc_nl_final,"clc_netherlands_epsg3035.gpkg")
 
 clc_nl <- st_read(here("data", "clc_netherlands_epsg3035.gpkg"))
 
+# Adding labels
+code_labels <- c(
+  "111" = "Continuous urban fabric",
+  "112" = "Discontinuous urban fabric",
+  "121" = "Industrial or commercial units",
+  "122" = "Road and rail networks and associated land",
+  "123" = "Port areas",
+  "124" = "Airports",
+  "131" = "Mineral extraction sites",
+  "132" = "Dump sites",
+  "133" = "Construction sites",
+  "141" = "Green urban areas",
+  "142" = "Sport and leisure facilities",
+  "211" = "Non-irrigated arable land",
+  "212" = "Permanently irrigated land",
+  "213" = "Rice fields",
+  "221" = "Vineyards",
+  "222" = "Fruit trees and berry plantations",
+  "223" = "Olive groves",
+  "231" = "Pastures",
+  "241" = "Annual crops associated with permanent crops",
+  "242" = "Complex cultivation patterns",
+  "243" = "Land principally occupied by agriculture, with significant areas of natural vegetation",
+  "244" = "Agro-forestry areas",
+  "311" = "Broad-leaved forest",
+  "312" = "Coniferous forest",
+  "313" = "Mixed forest",
+  "321" = "Natural grasslands",
+  "322" = "Moors and heathland",
+  "323" = "Sclerophyllous vegetation",
+  "324" = "Transitional woodland-shrub",
+  "331" = "Beaches, dunes, sands",
+  "332" = "Bare rocks",
+  "333" = "Sparsely vegetated areas",
+  "334" = "Burnt areas",
+  "335" = "Glaciers and perpetual snow",
+  "411" = "Inland marshes",
+  "412" = "Peat bogs",
+  "421" = "Salt marshes",
+  "422" = "Salines",
+  "423" = "Intertidal flats",
+  "511" = "Water courses",
+  "512" = "Water bodies",
+  "521" = "Coastal lagoons",
+  "522" = "Estuaries",
+  "523" = "Sea and ocean"
+)
 
-unique_codes <- unique(clc_nl$Code_18)
-labels <- clc_nl$Remark[match(unique_codes, clc_nl$Code_18)]
+clc_nl$code_label <- code_labels[as.character(clc_nl$Code_18)]
 
-palette_clc <- hsv(h = seq(0, 1, length.out = length(unique_codes)), s = 0.6, v = 0.9)
-names(palette_clc) <- as.character(unique_codes)
+# Plot for first impression
+top_labels <- names(sort(tapply(clc_nl$Area_Ha, clc_nl$code_label, sum), decreasing = TRUE))[1:7]
+clc_nl$filtered_label <- ifelse(clc_nl$code_label %in% top_labels, clc_nl$code_label, "Others")
 
-plot(clc_nl["Code_18"],
-     col = palette_clc,
-     legend = FALSE,
-     axes = FALSE,
-     main = "CLC 2018 NL")
+palette_clc <- hsv(h = seq(0, 1-1/length(unique(clc_nl$filtered_label)), length.out = length(unique(clc_nl$filtered_label))),
+                   s = 0.6, v = 0.9)
+
+names(palette_clc) <- unique(clc_nl$filtered_label)
+
+ggplot(clc_nl) +
+  geom_sf(aes(fill = filtered_label), color = NA) +
+  scale_fill_manual(values = c(palette_clc[top_labels], "Others" = "gray80")) +
+  theme_minimal()
+
 
 ```
-# Work in progress 
+
+# Work in progress
+
 ```{r Land Use vector API}
-# I download the data as vector data as I would assume that it is easier for later calucaltion. But I haven't thought about it in detail.
+# I download the data as vector data as I would assume that it is easier for later calculation. But I haven't thought about it in detail.
 
 
 #1st step search for UUID of DataSet
@@ -265,12 +263,249 @@ repeat {
   page <- page + 1
 }
 
-# Alles zu einem DataFrame verbinden
 all_results <- bind_rows(all_items)
 
 results <-subset(all_results, grepl("corine", title, ignore.case = TRUE))
-results <-subset(all_results, grepl("clc", title, ignore.case = TRUE))
 
-uuid <- "9788d256594044d987828eb1e5b6e7b1"
-# Whats difference between corine and clc data set???
+uid <- "0407d497d3c44bcd93ce8fd5bf78596a"
+
+subset <- results[results$UID == uid, ]
+download_ids <- subset$dataset_download_information.items[[1]]
+download_id <- download_ids[download_ids$full_format == "GDB", c("@id")]
+
+# 2nd step: Decide in which format the items should be downloaded + spatial extent
+
+# Get Bearer key
+service_key <- read_json(here("token.json"))
+
+private_key <- service_key$private_key
+
+claim <-jwt_claim(
+  iss= service_key$client_id,
+  sub= service_key$user_id,
+  aud= service_key$token_uri,
+  iat= as.integer(Sys.time()),
+  exp= as.integer(Sys.time() + 60 * 60)
+)
+
+jwt <- jwt_encode_sig(claim, key = private_key)
+
+base_url <- "https://land.copernicus.eu/@@oauth2-token"
+
+token_response <- POST(
+  url = base_url,
+  add_headers("Content-Type" = "application/x-www-form-urlencoded",
+              Accept = "application/json"),
+  body = list(
+    grant_type = "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion = jwt
+  ),
+  encode = "form"
+)
+
+if (status_code(token_response) != 200) {
+    stop("Request for token failed", " ",status_code(token_response), "\nPlease check your token.json")
+}
+
+token_content <- fromJSON(content(token_response, as = "text", encoding = "UTF-8"), flatten = TRUE)
+access_token <- token_content$access_token
+# Projections that are available
+proj_response <- GET(paste0("https://land.copernicus.eu/api/@projections?uid=", uid), accept("application/json"), add_headers(Authorization = paste("Bearer",access_token)))
+
+if (status_code(proj_response) != 200) {
+    stop("Request for projections failed", " ",status_code(proj_response), "\nMay access token is not correct. Did you run the code above successfully?")
+  }
+
+proj_content <- fromJSON(content(proj_response, as = "text", encoding = "UTF-8"), flatten = TRUE)
+
+# Download actual data set with EPSG:4326
+
+json_body <- list(
+  Datasets = list(
+    list(
+      DatasetID = uid,
+      DatasetDownloadInformationID = download_id,
+      NUTS = "NL",
+      OutputFormat = "GDB",
+      OutputGCS = "EPSG:4326"
+    )
+  )
+)
+
+data_request_response <- POST(
+  url = "https://land.copernicus.eu/api/@datarequest_post",
+  add_headers("Content-Type" = "application/json",
+              "Accept" = "application/json",
+              "Authorization" = paste("Bearer", access_token)),
+  body = toJSON(json_body, auto_unbox = TRUE),
+  encode = "json"
+)
+if (status_code(data_request_response) == 429) {
+    stop("Too many requests, please try last block again in ", headers(data_request_response)$"retry-after" ," seconds!")
+}
+if (status_code(data_request_response) != 201) {
+    stop("Request for projections failed", " ",status_code(data_request_response), "\nMay access token is not correct. Did you run the code above successfully?")
+}
+
+data_request_response_json <- fromJSON(content(data_request_response, as = "text", encoding = "UTF-8"), flatten = TRUE)
+tID <- data_request_response_json$TaskIds$TaskID
+
+# Check if data is ready for download
+repeat {
+  status_request_response <- GET(
+    url = paste0("https://land.copernicus.eu/api/@datarequest_status_get?TaskID=",tID),
+    add_headers(
+      "Accept" = "application/json",
+      "Authorization" = paste("Bearer", access_token)
+    )
+  )
+  if (status_code(status_request_response) == 429) {
+      retry_after <- as.numeric(headers(status_request_response)[["retry-after"]])
+      message("Too many requests (rate limiting), waiting... ", retry_after, " seconds...")
+      Sys.sleep(retry_after)
+      next
+  }
+  if (status_code(status_request_response) != 200) {
+      stop("Request for projections failed (Status ", status_code(status_request_response), "). May wrong access token or task ID")
+  }
+  status_request_response_json <- fromJSON(content(status_request_response, as = "text", encoding = "UTF-8"), flatten = TRUE)
+  current_status <- status_request_response_json$Status
+  
+  if (current_status == "Finished_ok") {
+    download_url <- status_request_response_json$DownloadURL
+    message("Request Finished!")
+    break
+  } else if (current_status %in% c("Failed", "Error", "Cancelled")) {
+    stop("Request failed, status: ", current_status)
+  }
+
+  # Wait
+  message("Request not yet finished. Retry in 60 seconds..")
+  Sys.sleep(60)
+}
+
+```
+
+```{r Corine_Download}
+# Download Land Use Data
+download.file(download_url, destfile = here("data","raw", "CORINE_Land_Cover_2018.zip"), mode = "wb")
+unzip(here("data", "raw", "CORINE_Land_Cover_2018.zip"), exdir = here("data/raw/Corine_Land_Cover_2018"))
+file.remove(here("data","raw", "CORINE_Land_Cover_2018.zip"))
+
+clc_nl <- st_read(here("data", "raw", "Corine_Land_Cover_2018", "Results", "U2018_CLC2018_V2020_20u1.gdb"))
+
+# Add labels for CODE_18
+code_labels <- c(
+  "111" = "Continuous urban fabric",
+  "112" = "Discontinuous urban fabric",
+  "121" = "Industrial or commercial units",
+  "122" = "Road and rail networks and associated land",
+  "123" = "Port areas",
+  "124" = "Airports",
+  "131" = "Mineral extraction sites",
+  "132" = "Dump sites",
+  "133" = "Construction sites",
+  "141" = "Green urban areas",
+  "142" = "Sport and leisure facilities",
+  "211" = "Non-irrigated arable land",
+  "212" = "Permanently irrigated land",
+  "213" = "Rice fields",
+  "221" = "Vineyards",
+  "222" = "Fruit trees and berry plantations",
+  "223" = "Olive groves",
+  "231" = "Pastures",
+  "241" = "Annual crops associated with permanent crops",
+  "242" = "Complex cultivation patterns",
+  "243" = "Land principally occupied by agriculture, with significant areas of natural vegetation",
+  "244" = "Agro-forestry areas",
+  "311" = "Broad-leaved forest",
+  "312" = "Coniferous forest",
+  "313" = "Mixed forest",
+  "321" = "Natural grasslands",
+  "322" = "Moors and heathland",
+  "323" = "Sclerophyllous vegetation",
+  "324" = "Transitional woodland-shrub",
+  "331" = "Beaches, dunes, sands",
+  "332" = "Bare rocks",
+  "333" = "Sparsely vegetated areas",
+  "334" = "Burnt areas",
+  "335" = "Glaciers and perpetual snow",
+  "411" = "Inland marshes",
+  "412" = "Peat bogs",
+  "421" = "Salt marshes",
+  "422" = "Salines",
+  "423" = "Intertidal flats",
+  "511" = "Water courses",
+  "512" = "Water bodies",
+  "521" = "Coastal lagoons",
+  "522" = "Estuaries",
+  "523" = "Sea and ocean"
+)
+
+clc_nl$code_label <- code_labels[as.character(clc_nl$Code_18)]
+
+st_write(clc_nl, here("data", "clc_nl.gpkg"), delete_layer = TRUE)
+```
+
+### Overview over data sets
+
++------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
+| DataSet                            | Automatic extraction | Format                          | Resolution                                 | Projection  |
++====================================+======================+=================================+============================================+=============+
+| GADMN (admin. boundaries), Level 2 | Yes                  | Vector                          | \-                                         | WGS 84      |
+|                                    |                      |                                 |                                            |             |
+|                                    |                      | nld_2: SpatVector (terra)       |                                            |             |
+|                                    |                      |                                 |                                            |             |
+|                                    |                      | nld_2_sf: sf-Object             |                                            |             |
++------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
+| CHELSA (temperature data)          | Yes                  | Raster                          | 0.008333333                                | WGS 84      |
+|                                    |                      |                                 |                                            |             |
+| --\> Average temperature in 2019   |                      | temp: SpatRaster (terra) | \~ 930 m (North-South) x 570 m (East-West) |             |
+|                                    |                      |                                 |                                            |             |
+|                                    |                      | temp_df: DataFrame       |                                            |             |
++------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
+| HDX (population density)           | Yes                  | Raster                          | 0.008333333                                | WGS84       |
+|                                    |                      |                                 |                                            |             |
+| 2019                               |                      | pop2:                           | \~ 930 m (North-South) x 570 m (East-West) |             |
++------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
+| Corine (Land Use)                  |                      | Vector\                         |                                            |             |
+|                                    |                      | :                               |                                            |             |
++------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
+
+```{r load data sets}
+# Population density
+pop2 <- raster(here("data","raw", "nld_population_2019.tif"))
+
+# Administrive boundaries
+nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
+nld_2_sf <- st_as_sf(nld_2)
+
+# Temperature
+temp <- raster(here("data", "temp.nc"))
+temp_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+
+# Land Use
+clc_nl <- st_read(here("data", "clc_nl.gpkg"))
+
+# Plotting for understanding data
+plot(pop2)
+ggplot() +
+  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=tas)) +
+  scale_fill_viridis_c(option="viridis", name="Temperature (2019)") +
+  geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
+  theme_minimal()
+
+# Plot clc
+top_labels <- names(sort(tapply(clc_nl$Area_Ha, clc_nl$code_label, sum), decreasing = TRUE))[1:7]
+clc_nl$filtered_label <- ifelse(clc_nl$code_label %in% top_labels, clc_nl$code_label, "Others")
+
+palette_clc <- hsv(h = seq(0, 1-1/length(unique(clc_nl$filtered_label)), length.out = length(unique(clc_nl$filtered_label))),
+                   s = 0.6, v = 0.9)
+
+names(palette_clc) <- unique(clc_nl$filtered_label)
+ggplot(clc_nl) +
+  geom_sf(aes(fill = filtered_label), color = NA) +
+  scale_fill_manual(values = c(palette_clc[top_labels], "Others" = "gray80")) +
+  theme_minimal()
+
 ```
