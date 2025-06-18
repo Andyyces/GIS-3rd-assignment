@@ -5,9 +5,8 @@ Document for project management purposes.
 
 |Date | ToDo (till Meeting)  | Who? |
 |--|--|--|
-|18.06., 5 p.m.  |  Download Data (via API)| Ling & Tobias|
-|25.06. |Wrangling up the data| ???
-|2.07.|Run analysis & Plots|???|
+|18.06., 5 p.m. |  Download Data (via API)| Ling & Tobias|
+|2.07., 5 p.m.|Clean data, Run & Think about analysis & Plots|Andrea & Ling|
 |7.07.|Deadline!||
 
 ## Tasks (According to Assignment Paper)
@@ -39,14 +38,14 @@ results of.
 - ~~Think of how you can use your data at best for this analysis.~~
 
 ### Step 3 - Wrangle the data and produce a nice descriptive statistics table/figure
-- Clean your data for your analysis framework
-- Write down the data description and produce on table/figure to describe the data
+- Clean your data for your analysis framework @Andrea @ Ling 
+- Write down the data description and produce on table/figure to describe the data LATER
 ### Step 4 - Run the analysis and discuss the results
-- Run the analysis and report the results
+- Run the analysis and report the results @Andrea
 - Write down a results comment, remember to try to answer your declared initial question.
 ### Step 5 - Make sure at some point you produced a nice map
 - Make sure you use the things we learnt in the exercise classes and produce a nice map
-that either shows your data or your results.
+that either shows your data or your results. LATER
 ### Step 6 - Make the final .pdf/.html knitted file
 - Hide the part of the code in your document and make sure it looks like a nice self-contained
 report.
