@@ -45,7 +45,17 @@ We examine the correlation between population density and temperature across dif
 
 # Data
 
+IMPORTANT: To download land use data you have to register here <https://land.copernicus.eu/en> for creating an API token. Then please save all the token information provided in a token.json!
+
+```{r Check for token.json}
+
+if (!file.exists(here("token.json"))) {
+  warning("NO token.json created! Download of Land Cover data will fail.")
+}
+```
+
 ## Download and Pre-processing of Data
+
 ### Administrative boundaries
 
 ```{r Administrative boundaries}
@@ -54,7 +64,7 @@ nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
 nld_2_sf <- st_as_sf(nld_2)
 ```
 
-## Population Density
+### Population Density
 
 ```{r}
 # COMMENT TOBI: @Ling Where did you got the fine grained data from? I only found ~100m resolution for population density. However, the resolution of our temperature data set ist ~ 1km, so do we really need such fine grained data at this point? 
@@ -63,12 +73,16 @@ nld_2_sf <- st_as_sf(nld_2)
 
 # pop
 # plot(pop)
+if (!dir.exists(here("data/raw"))) {
+  dir.create(here("data/raw"), recursive = TRUE)
+}
+
 url_pop <- "https://data.worldpop.org/GIS/Population/Global_2015_2030/R2024B/2019/NLD/v1/100m/constrained/nld_pop_2019_CN_100m_R2024B_v1.tif"
 
 download.file(url_pop, destfile = here("data", "nld_population_2019.tif"), mode = "wb")
 ```
 
-## Temperature
+### Temperature
 
 ```{r CHELSA 2020}
 # (latest) Annual Data of 2020, resolution ~1km
@@ -84,22 +98,11 @@ temp_masked <- mask(temp_cropped, nld_2)
 
 writeCDF(temp_masked, here("data", "temp.nc"))
 
-plot(temp_masked)
-
-
-# Plot for first impression
 temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
 
-ggplot() +
-  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=tas)) +
-  scale_fill_viridis_c(option="viridis", name="Temperature") +
-  geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
-  theme_minimal()
-
-plot(temp_masked)
 ```
 
-```{r CHELSA 1981-2005}
+```{r EXPERIMENTAL: CHELSA 1981-2005}
 # Annual Data of 1981-2005 (average),resolution ~1km
 
 url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/1981-2005/bio/CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"
@@ -125,33 +128,9 @@ ggplot() +
 plot(temp_series_masked)
 ```
 
-## Land Use
+### Land Cover
 
-```{r Land Use manual}
-# Download Land use data manual... 
-# url: https://land.copernicus.eu/en/products/corine-land-cover/clc2018#download
-# Download GPKG format, registration necessary...
-
-# I download the data as vector data as I would assume that it is easier for later calculation. But I haven't thought about it in detail.
-
-st_layers(here("data", "raw", "U2018_CLC2018_V2020_20u1.gpkg"))
-
-clc <- vect(here("data", "raw", "U2018_CLC2018_V2020_20u1.gpkg"), layer= "U2018_CLC2018_V2020_20u1")
-names(clc)
-head(names(clc))
-
-nld_2_etrs89 <- project(nld_2, crs(clc))
-
-clc_nl <- crop(clc, nld_2_etrs89)
-
-clc_nl_masked <- mask(clc_nl, nld_2_etrs89)
-
-clc_nl_final <- project(clc_nl_masked, "EPSG:4326")
-
-writeVector(clc_nl_final,"clc_netherlands_epsg3035.gpkg")
-```
-
-```{r Land Use import}
+```{r LEGACY: Land Use import}
 # Fast way
 
 clc_nl <- st_read(here("data", "clc_netherlands_epsg3035.gpkg"))
@@ -223,8 +202,6 @@ ggplot(clc_nl) +
 
 ```
 
-# Work in progress
-
 ```{r Land Use vector API}
 # I download the data as vector data as I would assume that it is easier for later calculation. But I haven't thought about it in detail.
 
@@ -275,7 +252,7 @@ download_id <- download_ids[download_ids$full_format == "GDB", c("@id")]
 
 # 2nd step: Decide in which format the items should be downloaded + spatial extent
 
-# Get Bearer key
+# Get Bearer (private) key for API
 service_key <- read_json(here("token.json"))
 
 private_key <- service_key$private_key
@@ -292,6 +269,7 @@ jwt <- jwt_encode_sig(claim, key = private_key)
 
 base_url <- "https://land.copernicus.eu/@@oauth2-token"
 
+Sys.sleep(10)
 token_response <- POST(
   url = base_url,
   add_headers("Content-Type" = "application/x-www-form-urlencoded",
@@ -304,11 +282,12 @@ token_response <- POST(
 )
 
 if (status_code(token_response) != 200) {
-    stop("Request for token failed", " ",status_code(token_response), "\nPlease check your token.json")
+    stop("Request for token failed, status: ", " ",status_code(token_response), "\nPlease check your token.json")
 }
 
 token_content <- fromJSON(content(token_response, as = "text", encoding = "UTF-8"), flatten = TRUE)
 access_token <- token_content$access_token
+
 # Projections that are available
 proj_response <- GET(paste0("https://land.copernicus.eu/api/@projections?uid=", uid), accept("application/json"), add_headers(Authorization = paste("Bearer",access_token)))
 
@@ -319,7 +298,6 @@ if (status_code(proj_response) != 200) {
 proj_content <- fromJSON(content(proj_response, as = "text", encoding = "UTF-8"), flatten = TRUE)
 
 # Download actual data set with EPSG:4326
-
 json_body <- list(
   Datasets = list(
     list(
@@ -380,13 +358,13 @@ repeat {
   }
 
   # Wait
-  message("Request not yet finished. Retry in 60 seconds..")
+  message("Request not yet completed. Retry in 60 seconds..")
   Sys.sleep(60)
 }
 
 ```
 
-```{r Corine_Download}
+```{r Corine Download and Pre-Processing}
 # Download Land Use Data
 download.file(download_url, destfile = here("data","raw", "CORINE_Land_Cover_2018.zip"), mode = "wb")
 unzip(here("data", "raw", "CORINE_Land_Cover_2018.zip"), exdir = here("data/raw/Corine_Land_Cover_2018"))
@@ -449,44 +427,46 @@ st_write(clc_nl, here("data", "clc_nl.gpkg"), delete_layer = TRUE)
 
 ### Overview over data sets
 
-+------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
-| DataSet                            | Automatic extraction | Format                          | Resolution                                 | Projection  |
-+====================================+======================+=================================+============================================+=============+
-| GADMN (admin. boundaries), Level 2 | Yes                  | Vector                          | \-                                         | WGS 84      |
-|                                    |                      |                                 |                                            |             |
-|                                    |                      | nld_2: SpatVector (terra)       |                                            |             |
-|                                    |                      |                                 |                                            |             |
-|                                    |                      | nld_2_sf: sf-Object             |                                            |             |
-+------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
-| CHELSA (temperature data)          | Yes                  | Raster                          | 0.008333333                                | WGS 84      |
-|                                    |                      |                                 |                                            |             |
-| --\> Average temperature in 2019   |                      | temp: SpatRaster (terra) | \~ 930 m (North-South) x 570 m (East-West) |             |
-|                                    |                      |                                 |                                            |             |
-|                                    |                      | temp_df: DataFrame       |                                            |             |
-+------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
-| HDX (population density)           | Yes                  | Raster                          | 0.008333333                                | WGS84       |
-|                                    |                      |                                 |                                            |             |
-| 2019                               |                      | pop2:                           | \~ 930 m (North-South) x 570 m (East-West) |             |
-+------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
-| Corine (Land Use)                  |                      | Vector\                         |                                            |             |
-|                                    |                      | :                               |                                            |             |
-+------------------------------------+----------------------+---------------------------------+--------------------------------------------+-------------+
++------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
+| DataSet                            | Automatic extraction | Format                       | Resolution                                 | Projection |
++====================================+======================+==============================+============================================+============+
+| GADMN (admin. boundaries), Level 2 | Yes                  | Vector                       | \-                                         | WGS 84     |
+|                                    |                      |                              |                                            |            |
+|                                    |                      | nld_2: SpatVector (terra)    |                                            |            |
+|                                    |                      |                              |                                            |            |
+|                                    |                      | nld_2_sf: sf-Object          |                                            |            |
++------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
+| CHELSA (temperature data)          | Yes                  | temp: SpatRaster (terra)     | Raster 0.008333333                         | WGS 84     |
+|                                    |                      |                              |                                            |            |
+| --\> Average temperature in 2019   |                      | temp_df: DataFrame           | \~ 930 m (North-South) x 570 m (East-West) |            |
++------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
+| HDX (population density)           | Yes                  | Raster                       | 0.008333333                                | WGS 84     |
+|                                    |                      |                              |                                            |            |
+| 2019                               |                      | pop2: SpatRaster (terra)     | \~ 930 m (North-South) x 570 m (East-West) |            |
++------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
+| Corine (Land Use)                  | Yes                  | Vector\                      |                                            | WGS 84     |
+|                                    |                      | clc_nl: SpatVector (terra)   |                                            |            |
+|                                    |                      |                              |                                            |            |
+|                                    |                      | clc_nl_sf: sf-object         |                                            |            |
++------------------------------------+----------------------+------------------------------+--------------------------------------------+------------+
+
+## Load downloaded data in memory
 
 ```{r load data sets}
 # Population density
-pop2 <- raster(here("data","raw", "nld_population_2019.tif"))
-
+pop2 <- rast(here("data", "nld_population_2019.tif"))
+crs(pop2)
 # Administrive boundaries
 nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
 nld_2_sf <- st_as_sf(nld_2)
 
 # Temperature
-temp <- raster(here("data", "temp.nc"))
+temp <- rast(here("data", "temp.nc"))
 temp_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
 
 # Land Use
-clc_nl <- st_read(here("data", "clc_nl.gpkg"))
-
+clc_nl <- vect(here("data", "clc_nl.gpkg"))
+clc_nl_sf <- st_as_sf(clc_nl)
 # Plotting for understanding data
 plot(pop2)
 ggplot() +
