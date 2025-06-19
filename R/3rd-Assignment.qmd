@@ -90,42 +90,41 @@ download.file(url_pop, destfile = here("data", "nld_population_2019.tif"), mode 
 url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/annual/V2.1/bio01d/CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc"
 
 download.file(url, destfile = here("data", "raw", "CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc"), mode = "wb")
-
 temp <- rast(here("data", "raw", "CHELSA_EUR11_obs_bio01d_2019_V.2.1.nc")) 
 
 temp_cropped <- crop(temp, nld_2)
 temp_masked <- mask(temp_cropped, nld_2)
 
-writeCDF(temp_masked, here("data", "temp.nc"), overwrite=TRUE)
+names(temp_masked)
 
-temp_masked_df <- as.data.frame(temp_masked$tas, xy = TRUE, na.rm = TRUE)
+writeRaster(temp_masked, here("data", "temp.nc"), overwrite=TRUE)
 
 ```
 
 ```{r EXPERIMENTAL: CHELSA 1981-2005}
 # Annual Data of 1981-2005 (average),resolution ~1km
 
-url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/1981-2005/bio/CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"
+#url <- "https://os.zhdk.cloud.switch.ch/chelsav2/EUR11/obs/1981-2005/bio/CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"
 
-download.file(url, destfile = here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"), mode = "wb")
-temp_series <- rast(here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc")) 
+#download.file(url, destfile = here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc"), mode = "wb")
+#temp_series <- rast(here("data", "raw", "CHELSA_ERA5_obs_bio01d_1981-2005_V.1.0.nc")) 
 
-temp_series_cropped <- crop(temp_series, nld_2)
-temp_series_masked <- mask(temp_series_cropped, nld_2)
+#temp_series_cropped <- crop(temp_series, nld_2)
+#temp_series_masked <- mask(temp_series_cropped, nld_2)
 
-plot(temp_series_masked)
+#plot(temp_series_masked)
 
 
 # Plot for first impression
-temp_series_masked_df <- as.data.frame(temp_series_masked$tas, xy = TRUE, na.rm = TRUE)
+#temp_series_masked_df <- as.data.frame(temp_series_masked$tas, xy = TRUE, na.rm = TRUE)
 
-ggplot() +
-  geom_raster(data=temp_series_masked_df, aes(x=x, y=y, fill=tas)) +
-  scale_fill_viridis_c(option="viridis", name="Temperature") +
-  geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
-  theme_minimal()
+#ggplot() +
+#  geom_raster(data=temp_series_masked_df, aes(x=x, y=y, fill=tas)) +
+#  scale_fill_viridis_c(option="viridis", name="Temperature") +
+#  geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
+#  theme_minimal()
 
-plot(temp_series_masked)
+#plot(temp_series_masked)
 ```
 
 ### Land Cover
