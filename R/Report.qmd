@@ -181,7 +181,7 @@ regression_data <- merge(extracted_values,
                         by.x = "ID", 
                         by.y = 0)  # 0 refers to row numbers
 
-# Use Label1 from the original data for land use grouping
+# Use Label2 from the original data for land use grouping
 # This groups the land use types according to the Corine classification hierarchy
 regression_data <- regression_data %>%
   rename(landuse_broad = Label2) %>%
@@ -245,6 +245,55 @@ html_table <- summary_stats_formatted %>%
 
 # Display the table
 html_table
+```
+
+
+```{r}
+library(leaflet)
+#
+clc_nl_valid <- clc_nl_sf %>%
+  mutate(geometry = st_make_valid(geometry))
+
+# 
+label2_geom <- clc_nl_valid %>%
+  group_by(Label2) %>%
+  summarise(geometry = st_union(geometry), .groups = "drop")
+
+# 2. 
+summary_stats_sf <- summary_stats %>%
+  left_join(label2_geom, by = c("landuse_broad" = "Label2")) %>%
+  st_as_sf()
+
+# 1. Create popup 
+popup_text <- paste0(
+  "<strong>Land Use:</strong> ", summary_stats_sf $landuse_broad, "<br>",
+  "<strong>Mean Temp:</strong> ", round(summary_stats_sf $mean_temp, 2), " °C<br>",
+  "<strong>Mean Pop:</strong> ", round(summary_stats_sf $mean_pop / 0.01, 0), " people/km²<br>",
+  "<strong>Correlation:</strong> ", round(summary_stats_sf $correlation, 2)
+)
+
+# 2. Create color for correlation
+pal <- colorNumeric(palette = "viridis", domain = summary_stats_sf $correlation)
+
+# 3. Create interact map
+leaflet(summary_stats_sf) %>%
+  addProviderTiles("CartoDB.Positron") %>%  
+  addPolygons(
+    fillColor = ~pal(correlation),
+    fillOpacity = 0.7,
+    color = "white",
+    weight = 1,
+    popup = popup_text,
+    label = ~landuse_broad,
+    highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~correlation,
+    title = "Correlation (Temp ~ Pop)",
+    opacity = 1
+  )
 ```
 
 # Regression models
