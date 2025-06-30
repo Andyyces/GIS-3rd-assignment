@@ -29,7 +29,8 @@ p_load(here,
        gt,
        tidyr,
        viridis,
-       ggspatial)
+       ggspatial,
+       leaflet)
 
 # Population density
 pop2 <- rast(here("data", "nld_population_2019.tif"))
@@ -51,7 +52,15 @@ clc_nl_sf <- st_as_sf(clc_nl)
 
 Research question: **How does the relationship between population density and temperature vary across different land use types around Netherlands?**
 
-# Data 
+# Data
+
+-   [Administrative boundaries](https://gadm.org/)
+
+-   [Temperature data](https://chelsa-climate.org/)
+
+-   [Land use](https://land.copernicus.eu/en/products/corine-land-cover)
+
+-   [Population density](https://www.worldpop.org/)
 
 ## Scope
 
@@ -86,6 +95,8 @@ gg_plt <- nld_2_sf %>%
 #| echo: false
 #| message: false
 #| warning: false
+#| fig-cap: "Districts in the Netherlands"
+#| label: fig-dist
 girafe(
   ggobj = gg_plt)
 ```
@@ -96,7 +107,10 @@ girafe(
 #| echo: false
 #| message: false
 #| warning: false
-
+#| fig-cap: "Average Temperature Across the Netherlands"
+#| label: fig-temp
+temp_df <- temp_df %>%
+  rename(temperature = Band1)
 
 # Alternative: Create a more artistic version with contour lines
 artistic_plot <- ggplot() +
@@ -130,8 +144,7 @@ artistic_plot <- ggplot() +
   
   # Minimalist theme
   labs(
-    title = "Average Temperature Across the Netherlands",
-    subtitle = "2019"
+    title = "2019"
   ) +
   theme_void() +
   theme(
@@ -169,29 +182,29 @@ names(temp_pop_stack) <- c("temperature", "population")
 
 # Extract values at land use polygon locations
 # This extracts the mean value for each polygon
-extracted_values <- terra::extract(temp_pop_stack, clc_nl, 
-                                  fun = mean, 
-                                  na.rm = TRUE,
-                                  ID = TRUE)
+extracted_values_table <- terra::extract(temp_pop_stack, clc_nl, 
+                                         fun = mean, 
+                                         na.rm = TRUE,
+                                         ID = TRUE)
 
 # Combining with land use attributes
 clc_nl_df <- as.data.frame(clc_nl)
-regression_data <- merge(extracted_values, 
-                        clc_nl_df[, c("Code_18", "Label2")], 
-                        by.x = "ID", 
-                        by.y = 0)  # 0 refers to row numbers
+table_data <- merge(extracted_values_table, 
+                    clc_nl_df[, c("Code_18", "Label2")], 
+                    by.x = "ID", 
+                    by.y = 0)  # 0 refers to row numbers
 
-# Use Label2 from the original data for land use grouping
+# Using Label2 for the summary table
 # This groups the land use types according to the Corine classification hierarchy
-regression_data <- regression_data %>%
-  rename(landuse_broad = Label2) %>%
-  filter(!is.na(landuse_broad))
+table_data <- table_data %>%
+  rename(landuse = Label2) %>%
+  filter(!is.na(landuse))
 
 # Log-transform population due to skewness (add 1 to handle zeros)
-regression_data$log_population <- log(regression_data$population + 1)
+table_data$log_population <- log(table_data$population + 1)
 
-summary_stats <- regression_data %>%
-  group_by(landuse_broad) %>%
+summary_stats <- table_data %>%
+  group_by(landuse) %>%
   summarise(
     n = n(),
     mean_temp = mean(temperature, na.rm = TRUE),
@@ -214,7 +227,7 @@ summary_stats_formatted <- summary_stats %>%
     correlation = format(round(correlation, 2), big.mark = ",")
   ) %>%
   rename(
-    "Land Use Type" = landuse_broad,
+    "Land Use Type" = landuse,
     "Sample Size" = n,
     "Mean Temperature (°C)" = mean_temp,
     "SD Temperature (°C)" = sd_temp,
@@ -247,35 +260,38 @@ html_table <- summary_stats_formatted %>%
 html_table
 ```
 
-
 ```{r}
-library(leaflet)
-#
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-cap: "Correlation between Temperature and Population by Land Use Type across the Netherlands"
+#| label: fig-land
+# 1. Make geometry valid to avoid union errors
 clc_nl_valid <- clc_nl_sf %>%
   mutate(geometry = st_make_valid(geometry))
 
-# 
+# 2. Aggregate geometry by Label2 (land use category)
 label2_geom <- clc_nl_valid %>%
   group_by(Label2) %>%
   summarise(geometry = st_union(geometry), .groups = "drop")
 
-# 2. 
+# 3. Merge summary statistics with geometry
 summary_stats_sf <- summary_stats %>%
-  left_join(label2_geom, by = c("landuse_broad" = "Label2")) %>%
+  left_join(label2_geom, by = c("landuse" = "Label2")) %>%
   st_as_sf()
 
-# 1. Create popup 
+# 4. Create popup content for each polygon
 popup_text <- paste0(
-  "<strong>Land Use:</strong> ", summary_stats_sf $landuse_broad, "<br>",
-  "<strong>Mean Temp:</strong> ", round(summary_stats_sf $mean_temp, 2), " °C<br>",
-  "<strong>Mean Pop:</strong> ", round(summary_stats_sf $mean_pop / 0.01, 0), " people/km²<br>",
-  "<strong>Correlation:</strong> ", round(summary_stats_sf $correlation, 2)
+  "<strong>Land Use:</strong> ", summary_stats_sf$landuse, "<br>",
+  "<strong>Mean Temp:</strong> ", round(summary_stats_sf$mean_temp, 2), " °C<br>",
+  "<strong>Mean Pop:</strong> ", round(summary_stats_sf$mean_pop / 0.01, 0), " people/km²<br>",
+  "<strong>Correlation:</strong> ", round(summary_stats_sf$correlation, 2)
 )
 
-# 2. Create color for correlation
-pal <- colorNumeric(palette = "viridis", domain = summary_stats_sf $correlation)
+# 5. Define color palette for correlation values
+pal <- colorNumeric(palette = "viridis", domain = summary_stats_sf$correlation)
 
-# 3. Create interact map
+# 6. Create interactive map using Leaflet
 leaflet(summary_stats_sf) %>%
   addProviderTiles("CartoDB.Positron") %>%  
   addPolygons(
@@ -284,19 +300,38 @@ leaflet(summary_stats_sf) %>%
     color = "white",
     weight = 1,
     popup = popup_text,
-    label = ~landuse_broad,
+    label = ~landuse,
     highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
   ) %>%
   addLegend(
     "bottomright",
-    pal = pal,
+     pal = pal,
     values = ~correlation,
     title = "Correlation (Temp ~ Pop)",
     opacity = 1
-  )
+)
+
 ```
 
 # Regression models
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+regression_data <- merge(extracted_values_table, 
+                    clc_nl_df[, c("Code_18", "Label1")], 
+                    by.x = "ID", 
+                    by.y = 0)  # 0 refers to row numbers
+
+# Log-transform population due to skewness (add 1 to handle zeros)
+regression_data$log_population <- log(regression_data$population + 1)
+
+#Data grouping
+regression_data <- regression_data %>%
+  rename(landuse = Label1) %>%
+  filter(!is.na(landuse))
+```
 
 ```{r model 1}
 #| message: false
@@ -313,17 +348,17 @@ summary(model1)
 #| include: false
 # Model 2: Temperature ~ Land Use Type
 # First, let's see what land use categories we have
-unique_landuse <- unique(regression_data$landuse_broad)
+unique_landuse <- unique(regression_data$landuse)
 print("Available land use categories:")
 print(unique_landuse)
 
 # Setting the most common category as reference
-landuse_counts <- table(regression_data$landuse_broad)
+landuse_counts <- table(regression_data$landuse)
 most_common <- names(landuse_counts)[which.max(landuse_counts)]
 print(paste("Using", most_common, "as reference category"))
 
-regression_data$landuse_broad <- relevel(factor(regression_data$landuse_broad), ref = most_common)
-model2 <- lm(temperature ~ landuse_broad, data = regression_data)
+regression_data$landuse <- relevel(factor(regression_data$landuse), ref = most_common)
+model2 <- lm(temperature ~ landuse, data = regression_data)
 summary(model2)
 ```
 
@@ -332,7 +367,7 @@ summary(model2)
 #| warning: false
 #| include: false
 # Model 3: Temperature ~ Population Density + Land Use Type + Interaction
-model3 <- lm(temperature ~ log_population * landuse_broad, data = regression_data)
+model3 <- lm(temperature ~ log_population * landuse, data = regression_data)
 summary(model3)
 
 # Model comparison metrics
@@ -394,8 +429,8 @@ create_gt_all_models <- function(models, model_names) {
       term = case_when(
         term == "(Intercept)" ~ "Intercept",
         term == "log_population" ~ "Log(Population + 1)",
-        grepl("landuse_broad", term) ~ gsub("landuse_broad", "Land Use: ", term),
-        grepl("log_population:", term) ~ gsub("log_population:landuse_broad", "Log(Pop) × Land Use: ", term),
+        grepl("landuse_broad", term) ~ gsub("landuse", "Land Use: ", term),
+        grepl("log_population:", term) ~ gsub("log_population:landuse", "Log(Pop) × Land Use: ", term),
         TRUE ~ term
       )
     ) %>%
@@ -531,3 +566,11 @@ all_models_gt <- create_gt_all_models(
 # Displaying 
 all_models_gt
 ```
+
+The analysis of temperature patterns across the Netherlands reveal that areas with higher population density consistently experience elevated temperatures. Model 1 demonstrates that a logarithmic increase in population density corresponds to a 0.031°C increase in temperature.
+
+If we take a look at the Model 2, where we differenciate between different land use types, we can see that agricultural areas show slightly elevated temperatures, while forested and semi-natural areas provide significant cooling effects, reducing temperatures by approximately 0.045°C. Water bodies also contribute to local cooling, though to a lesser extent than forests. Wetlands show no significant temperature deviation from the baseline, suggesting they maintain relatively neutral thermal characteristics.
+
+The most interesting findings emerge from the interaction between population density and land use type in the full model. Water bodies demonstrate the strongest interaction effect, where populated areas near water experience amplified warming despite water's typical cooling properties. Similarly, forested areas with higher population density show increased temperatures, suggesting that human development can override the natural cooling benefits of vegetation. Agricultural areas exhibit a weaker but still significant interaction, while wetlands appear to buffer against population-related temperature increases, showing no significant interaction effect.
+
+These results indicate that land use type serves as an important moderator in the population-temperature relationship. While the overall explanatory power remains modest, with R2 values between 0.007 and 0.016, the findings demonstrate that the urban heat island effect varies significantly depending on the surrounding land use context. This suggests that urban planning strategies should consider not just population density but also the thermal characteristics of different land use types when addressing local climate impacts.
