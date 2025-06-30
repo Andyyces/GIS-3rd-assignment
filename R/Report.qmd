@@ -1,0 +1,484 @@
+---
+title: "Report"
+subtitle: "Introduction to Geographic Information Systems at TU Dresden"
+author: "Tuan Linh Tran, Andrea Češková, Tobias Grüner "
+format: "html"
+---
+
+```{r packages + data loading}
+#| message: false
+#| warning: false
+#| include: false
+
+library(pacman)
+p_load(here,
+       dplyr,
+       ggplot2,
+       glue,
+       ggiraph,
+       sf,
+       terra,
+       janitor,
+       tidyverse,
+       paletteer,
+       kableExtra,
+       DT,
+       broom,
+       modelsummary,
+       stargazer,
+       gt,
+       tidyr,
+       viridis,
+       ggspatial)
+
+# Population density
+pop2 <- rast(here("data", "nld_population_2019.tif"))
+
+# Administrive boundaries
+nld_2 <- geodata::gadm(country = "NLD", level = 2, path=tempdir())
+nld_2_sf <- st_as_sf(nld_2)
+
+# Temperature
+temp <- rast(here("data", "temp.nc"))
+temp_df <- as.data.frame(temp, xy = TRUE, na.rm = TRUE)
+
+# Land Use
+clc_nl <- vect(here("data", "clc_nl.gpkg"))
+clc_nl_sf <- st_as_sf(clc_nl)
+```
+
+# Goal of the analysis
+
+Research question: **How does the relationship between population density and temperature vary across different land use types around Netherlands?**
+
+# Data 
+
+## Scope
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+
+gg_plt <- nld_2_sf %>%
+  ggplot(aes(geometry = geometry)) +
+  geom_sf(
+    data = nld_2_sf,
+    aes(fill = NAME_1),
+    color = "black",
+    linewidth = 0.1
+  ) +
+  geom_sf_interactive(
+    fill = NA,
+    aes(
+      data_id = GID_2,
+      tooltip = glue::glue("{NAME_2}<br>{NAME_1}")
+      ),
+    color = "black",
+    linewidth = 0.1
+  ) +
+  labs(fill = "Districts") +
+  scale_fill_paletteer_d("yarrr::info2")
+  theme_void()
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+girafe(
+  ggobj = gg_plt)
+```
+
+## Outcome variable: Temperature
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# Alternative: Create a more artistic version with contour lines
+artistic_plot <- ggplot() +
+  # Temperature raster with different color scheme
+  geom_raster(data = temp_df, 
+              aes(x = x, y = y, fill = temperature),
+              interpolate = TRUE) +
+  # Add contour lines
+  geom_contour(data = temp_df,
+               aes(x = x, y = y, z = temperature),
+               color = "white",
+               alpha = 0.3,
+               size = 0.3,
+               bins = 8) +
+  
+  # Custom color gradient
+  scale_fill_gradient2(
+    low = "#2166ac",
+    mid = "#f7f7f7",
+    high = "#b2182b",
+    midpoint = mean(temp_df$temperature),
+    name = "Temperature (°C)",
+    breaks = seq(8, 12, by = 0.5),
+    labels = sprintf("%.1f", seq(8, 12, by = 0.5))
+  ) +
+  geom_sf(data = nld_2_sf, 
+          fill = NA, 
+          color = "gray20", 
+          linewidth = 0.1,
+          alpha = 0.9) +
+  
+  # Minimalist theme
+  labs(
+    title = "Average Temperature Across the Netherlands",
+    subtitle = "2019"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 10)),
+    plot.caption = element_text(size = 10, hjust = 0.5, color = "gray40", margin = margin(t = 10)),
+    legend.position = "bottom",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 9),
+    plot.background = element_rect(fill = "white", color = NA),
+    legend.key.width = unit(2, "cm")
+  ) +
+  coord_sf(expand = FALSE)
+
+# Print the artistic version
+print(artistic_plot)
+```
+
+## Control variable: Population density
+
+## Summary Statistics
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| tbl-cap: "Summary statistics"
+#| label: tbl-stats
+
+# Resampling just to make sure the resolutions match
+pop_resampled <- resample(pop2, temp, method = "bilinear")
+
+# First, creating a combined raster stack
+temp_pop_stack <- c(temp, pop_resampled)
+names(temp_pop_stack) <- c("temperature", "population")
+
+# Extract values at land use polygon locations
+# This extracts the mean value for each polygon
+extracted_values <- terra::extract(temp_pop_stack, clc_nl, 
+                                  fun = mean, 
+                                  na.rm = TRUE,
+                                  ID = TRUE)
+
+# Combining with land use attributes
+clc_nl_df <- as.data.frame(clc_nl)
+regression_data <- merge(extracted_values, 
+                        clc_nl_df[, c("Code_18", "Label2")], 
+                        by.x = "ID", 
+                        by.y = 0)  # 0 refers to row numbers
+
+# Use Label1 from the original data for land use grouping
+# This groups the land use types according to the Corine classification hierarchy
+regression_data <- regression_data %>%
+  rename(landuse_broad = Label2) %>%
+  filter(!is.na(landuse_broad))
+
+# Log-transform population due to skewness (add 1 to handle zeros)
+regression_data$log_population <- log(regression_data$population + 1)
+
+summary_stats <- regression_data %>%
+  group_by(landuse_broad) %>%
+  summarise(
+    n = n(),
+    mean_temp = mean(temperature, na.rm = TRUE),
+    sd_temp = sd(temperature, na.rm = TRUE),
+    mean_pop = mean(population, na.rm = TRUE),
+    median_pop = median(population, na.rm = TRUE),
+    correlation = cor(temperature, population, use = "complete.obs")
+  ) %>%
+  arrange(desc(n))
+
+# Adding formatting
+summary_stats_formatted <- summary_stats %>%
+  mutate(
+    # Format numbers nicely
+    n = format(n, big.mark = ","),
+    mean_temp = round(mean_temp, 2),
+    sd_temp = round(sd_temp, 2),
+    mean_pop = format(round(mean_pop, 2), big.mark = ","),
+    median_pop = format(round(median_pop, 2), big.mark = ","),
+    correlation = format(round(correlation, 2), big.mark = ",")
+  ) %>%
+  rename(
+    "Land Use Type" = landuse_broad,
+    "Sample Size" = n,
+    "Mean Temperature (°C)" = mean_temp,
+    "SD Temperature (°C)" = sd_temp,
+    "Mean Population" = mean_pop,
+    "Median Population" = median_pop,
+    "Correlation temperature ~ population" = correlation
+  )
+
+# Adding formatting with kableExtra
+html_table <- summary_stats_formatted %>%
+  kable(format = "html", 
+        escape = FALSE,
+        align = c("l", "r", "r", "r", "r", "r")) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = FALSE,
+    position = "center",
+    font_size = 14
+  ) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#4a6fa5") %>%
+  column_spec(1, bold = TRUE, width = "150px") %>%
+  column_spec(2:6, width = "120px") %>%
+  footnote(
+    general = "Data from Netherlands 2019: Temperature (CHELSA), Population (WorldPop), Land Use (Corine)",
+    general_title = "Source: ",
+    footnote_as_chunk = TRUE
+  )
+
+# Display the table
+html_table
+```
+
+# Regression models
+
+```{r model 1}
+#| message: false
+#| warning: false
+#| include: false
+# Model 1: Temperature ~ Population Density
+model1 <- lm(temperature ~ log_population, data = regression_data)
+summary(model1)
+```
+
+```{r model 2}
+#| message: false
+#| warning: false
+#| include: false
+# Model 2: Temperature ~ Land Use Type
+# First, let's see what land use categories we have
+unique_landuse <- unique(regression_data$landuse_broad)
+print("Available land use categories:")
+print(unique_landuse)
+
+# Setting the most common category as reference
+landuse_counts <- table(regression_data$landuse_broad)
+most_common <- names(landuse_counts)[which.max(landuse_counts)]
+print(paste("Using", most_common, "as reference category"))
+
+regression_data$landuse_broad <- relevel(factor(regression_data$landuse_broad), ref = most_common)
+model2 <- lm(temperature ~ landuse_broad, data = regression_data)
+summary(model2)
+```
+
+```{r model 3}
+#| message: false
+#| warning: false
+#| include: false
+# Model 3: Temperature ~ Population Density + Land Use Type + Interaction
+model3 <- lm(temperature ~ log_population * landuse_broad, data = regression_data)
+summary(model3)
+
+# Model comparison metrics
+models_comparison <- data.frame(
+  Model = c("Pop Only", "Land Use Only", "Full Model"),
+  R_squared = c(summary(model1)$r.squared, 
+                summary(model2)$r.squared, 
+                summary(model3)$r.squared),
+  Adj_R_squared = c(summary(model1)$adj.r.squared, 
+                    summary(model2)$adj.r.squared, 
+                    summary(model3)$adj.r.squared),
+  AIC = c(AIC(model1), AIC(model2), AIC(model3)),
+  BIC = c(BIC(model1), BIC(model2), BIC(model3))
+)
+print(models_comparison)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| tbl-cap: "Regression Results"
+#| label: tbl-reg
+create_gt_all_models <- function(models, model_names) {
+  
+  # Extracting coefficients from all models
+  all_coefs <- list()
+  
+  for (i in seq_along(models)) {
+    coef_data <- tidy(models[[i]]) %>%
+      mutate(
+        model = model_names[i],
+        significance = case_when(
+          p.value < 0.001 ~ "***",
+          p.value < 0.01 ~ "**",
+          p.value < 0.05 ~ "*",
+          p.value < 0.1 ~ "†",
+          TRUE ~ ""
+        ),
+        estimate_str = paste0(
+          format(round(estimate, 3), nsmall = 3),
+          significance
+        ),
+        se_str = paste0("(", format(round(std.error, 3), nsmall = 3), ")"),
+        combined = paste0(estimate_str, "\n", se_str)
+      ) %>%
+      select(term, combined, model)
+    
+    all_coefs[[i]] <- coef_data
+  }
+  
+  # Combining all coefficients
+  combined_coefs <- bind_rows(all_coefs) %>%
+    pivot_wider(names_from = model, values_from = combined, values_fill = "")
+  
+  # Cleaning up term names
+  combined_coefs <- combined_coefs %>%
+    mutate(
+      term = case_when(
+        term == "(Intercept)" ~ "Intercept",
+        term == "log_population" ~ "Log(Population + 1)",
+        grepl("landuse_broad", term) ~ gsub("landuse_broad", "Land Use: ", term),
+        grepl("log_population:", term) ~ gsub("log_population:landuse_broad", "Log(Pop) × Land Use: ", term),
+        TRUE ~ term
+      )
+    ) %>%
+    arrange(
+      case_when(
+        term == "Intercept" ~ 1,
+        term == "Log(Population + 1)" ~ 2,
+        grepl("^Land Use:", term) & !grepl("×", term) ~ 3,
+        grepl("×", term) ~ 4,
+        TRUE ~ 5
+      ),
+      term
+    )
+  
+  # Extracting model statistics
+  model_stats <- list()
+  for (i in seq_along(models)) {
+    stats <- glance(models[[i]])
+    model_stats[[i]] <- tibble(
+      model = model_names[i],
+      r_squared = format(round(stats$r.squared, 3), nsmall = 3),
+      adj_r_squared = format(round(stats$adj.r.squared, 3), nsmall = 3),
+      rmse = format(round(stats$sigma, 3), nsmall = 3),
+      f_stat = format(round(stats$statistic, 2), nsmall = 2),
+      nobs = format(stats$nobs, big.mark = ",")
+    )
+  }
+  
+  stats_combined <- bind_rows(model_stats)
+  
+  # Creating the GT table
+  gt_table <- combined_coefs %>%
+    gt() %>%
+    tab_header(title = "Outcome Variable: Temperature in °C"
+    ) %>%
+    cols_label(
+      term = "Variable"
+    ) %>%
+    cols_align(
+      align = "left",
+      columns = term
+    ) %>%
+    cols_align(
+      align = "center",
+      columns = -term
+    ) %>%
+    tab_style(
+      style = list(
+        cell_text(weight = "bold"),
+        cell_fill(color = "#2c3e50"),
+        cell_text(color = "white")
+      ),
+      locations = cells_column_labels()
+    ) %>%
+    tab_style(
+      style = list(
+        cell_borders(
+          sides = "bottom",
+          color = "#2c3e50",
+          weight = px(2)
+        )
+      ),
+      locations = cells_column_labels()
+    ) %>%
+    tab_style(
+      style = list(
+        cell_text(weight = "bold")
+      ),
+      locations = cells_body(
+        columns = term
+      )
+    ) %>%
+    tab_style(
+      style = list(
+        cell_fill(color = "#f8f9fa")
+      ),
+      locations = cells_body(
+        rows = seq(1, nrow(combined_coefs), 2)
+      )
+    ) %>%
+    tab_style(
+      style = list(
+        cell_borders(
+          sides = "top",
+          color = "#dee2e6",
+          weight = px(2)
+        )
+      ),
+      locations = cells_body(
+        rows = 1
+      )
+    )
+  
+  # Adding model statistics as a footer
+  for (i in seq_along(model_names)) {
+    model_stat <- stats_combined[i, ]
+    gt_table <- gt_table %>%
+      tab_footnote(
+        footnote = paste0(
+          "n = ", model_stat$nobs,
+          " | R² = ", model_stat$r_squared,
+          " | Adj. R² = ", model_stat$adj_r_squared,
+          " | RMSE = ", model_stat$rmse
+        ),
+        locations = cells_column_labels(columns = model_names[i])
+      )
+  }
+  
+  # Adding significance legend
+  gt_table <- gt_table %>%
+    tab_source_note(
+      source_note = "Standard errors in parentheses. Significance: † p < 0.1, * p < 0.05, ** p < 0.01, *** p < 0.001"
+    ) %>%
+    tab_options(
+      table.font.size = px(12),
+      heading.title.font.size = px(18),
+      heading.subtitle.font.size = px(14),
+      footnotes.font.size = px(10),
+      source_notes.font.size = px(10),
+      table.width = pct(90),
+      data_row.padding = px(8)
+    )
+  
+  return(gt_table)
+}
+
+# Creating the table with all three models
+all_models_gt <- create_gt_all_models(
+  models = list(model1, model2, model3),
+  model_names = c("Model 1: Population Only", "Model 2: Land Use Only", "Model 3: Full Model")
+)
+
+# Displaying 
+all_models_gt
+```
