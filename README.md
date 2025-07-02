@@ -1,6 +1,6 @@
 # GIS-3rd-assignment
 
-Group members: **Tuan Linh Tran**, **Andrea Češková**, **Tobias Grüner**
+Group members: **Tuan Linh Tran**, **Andrea Češková**, **Tobias Gruner**
 
 This repository was created to collaborate on the 3rd Assignment in the "Introduction to Geographic Information Systems" at TUD in the summer semester 2025. We will be analysing the following:
 
