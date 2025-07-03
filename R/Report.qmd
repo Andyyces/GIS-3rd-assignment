@@ -2,25 +2,29 @@
 title: "Report"
 subtitle: "Introduction to Geographic Information Systems at TU Dresden"
 author: "Tuan Linh Tran, Andrea Češková, Tobias Gruner "
-format: "html"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    citations-hover: true
+    footnotes-hover: true
+bibliography: references.bib
+link-citations: true
 ---
 
 ```{r packages + data loading}
 #| message: false
 #| warning: false
 #| include: false
-
 library(pacman)
 p_load(here,
        dplyr,
        ggplot2,
-       glue,
-       ggiraph,
        sf,
        terra,
        janitor,
        tidyverse,
-       paletteer,
        kableExtra,
        DT,
        broom,
@@ -30,7 +34,8 @@ p_load(here,
        tidyr,
        viridis,
        ggspatial,
-       leaflet)
+       leaflet,
+       RColorBrewer)
 
 # Population density
 pop2 <- rast(here("data", "nld_population_2019.tif"))
@@ -54,52 +59,13 @@ Research question: **How does the relationship between population density and te
 
 # Data
 
--   [Administrative boundaries](https://gadm.org/)
+-   [Administrative boundaries](https://gadm.org/) (@hijmans_gadm_2023)
 
--   [Temperature data](https://chelsa-climate.org/)
+-   [Temperature data](https://chelsa-climate.org/) (@karger_climatologies_2017)
 
--   [Land use](https://land.copernicus.eu/en/products/corine-land-cover)
+-   [Land use](https://land.copernicus.eu/en/products/corine-land-cover) (@european_environment_agency_corine_2020)
 
--   [Population density](https://www.worldpop.org/)
-
-## Scope
-
-```{r}
-#| message: false
-#| warning: false
-#| include: false
-
-gg_plt <- nld_2_sf %>%
-  ggplot(aes(geometry = geometry)) +
-  geom_sf(
-    data = nld_2_sf,
-    aes(fill = NAME_1),
-    color = "black",
-    linewidth = 0.1
-  ) +
-  geom_sf_interactive(
-    fill = NA,
-    aes(
-      data_id = GID_2,
-      tooltip = glue::glue("{NAME_2}<br>{NAME_1}")
-      ),
-    color = "black",
-    linewidth = 0.1
-  ) +
-  labs(fill = "Districts") +
-  scale_fill_paletteer_d("yarrr::info2")
-  theme_void()
-```
-
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
-#| fig-cap: "Districts in the Netherlands"
-#| label: fig-dist
-girafe(
-  ggobj = gg_plt)
-```
+-   [Population density](https://www.worldpop.org/) (@tatem_worldpop_2017)
 
 ## Outcome variable: Temperature
 
@@ -107,62 +73,95 @@ girafe(
 #| echo: false
 #| message: false
 #| warning: false
-#| fig-cap: "Average Temperature Across the Netherlands"
+#| fig-cap: "Mean Temperature by Region"
 #| label: fig-temp
-temp_df <- temp_df %>%
-  rename(temperature = Band1)
 
-# Alternative: Create a more artistic version with contour lines
-artistic_plot <- ggplot() +
-  # Temperature raster with different color scheme
-  geom_raster(data = temp_df, 
-              aes(x = x, y = y, fill = temperature),
-              interpolate = TRUE) +
-  # Add contour lines
-  geom_contour(data = temp_df,
-               aes(x = x, y = y, z = temperature),
-               color = "white",
-               alpha = 0.3,
-               size = 0.3,
-               bins = 8) +
-  
-  # Custom color gradient
-  scale_fill_gradient2(
-    low = "#2166ac",
-    mid = "#f7f7f7",
-    high = "#b2182b",
-    midpoint = mean(temp_df$temperature),
-    name = "Temperature (°C)",
-    breaks = seq(8, 12, by = 0.5),
-    labels = sprintf("%.1f", seq(8, 12, by = 0.5))
-  ) +
-  geom_sf(data = nld_2_sf, 
-          fill = NA, 
-          color = "gray20", 
-          linewidth = 0.1,
-          alpha = 0.9) +
-  
-  # Minimalist theme
-  labs(
-    title = "2019"
-  ) +
-  theme_void() +
-  theme(
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 10)),
-    plot.caption = element_text(size = 10, hjust = 0.5, color = "gray40", margin = margin(t = 10)),
-    legend.position = "bottom",
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9),
-    plot.background = element_rect(fill = "white", color = NA),
-    legend.key.width = unit(2, "cm")
-  ) +
-  coord_sf(expand = FALSE)
+# Extracting temperature values for each administrative region
+# Calculating mean temperature for each region
+temp_by_region <- terra::extract(temp, nld_2, fun = mean, na.rm = TRUE, ID = TRUE)
 
-# Print the artistic version
-print(artistic_plot)
+# Merging with administrative boundaries
+nld_2_df <- as.data.frame(nld_2)
+temp_regions <- merge(temp_by_region, nld_2_df, by.x = "ID", by.y = 0)
+
+# Adding temperature data to the sf object
+nld_2_sf$mean_temp <- temp_regions$Band1[match(1:nrow(nld_2_sf), temp_regions$ID)]
+
+# Removing any regions with missing temperature data
+nld_2_sf <- nld_2_sf %>%
+  filter(!is.na(mean_temp))
+
+# Creating color palette for temperature
+pal <- colorNumeric(
+  palette = "RdYlBu",  # Red-Yellow-Blue palette 
+  domain = nld_2_sf$mean_temp,
+  reverse = TRUE  # Reverse so red represents higher temperatures
+)
+
+# Creating popup content 
+popup_content <- paste0(
+  "<div style='font-family: Arial, sans-serif; font-size: 14px;'>",
+  "<strong style='color: #2c3e50; font-size: 16px;'>", nld_2_sf$NAME_2, "</strong><br/>",
+  "<strong>Province:</strong> ", nld_2_sf$NAME_1, "<br/>",
+  "<strong>Mean Temperature:</strong> ", round(nld_2_sf$mean_temp, 2), "°C<br/>",
+  "<em style='color: #666; font-size: 12px;'>Data: CHELSA 2019</em>",
+  "</div>"
+)
+
+# Creating the map
+leaflet(nld_2_sf) %>%
+  # Adding base map
+  addProviderTiles("CartoDB.Positron", 
+                   options = providerTileOptions(opacity = 0.8)) %>%
+  
+  # Adding polygons with temperature data
+  addPolygons(
+    fillColor = ~pal(mean_temp),
+    fillOpacity = 0.8,
+    color = "white",
+    weight = 1.5,
+    opacity = 1,
+    popup = popup_content,
+    label = ~paste0(NAME_2, ": ", round(mean_temp, 2), "°C"),
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "12px",
+      direction = "auto"
+    ),
+    highlightOptions = highlightOptions(
+      weight = 3,
+      color = "#2c3e50",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    )
+  ) %>%
+  
+  # Adding legend
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~mean_temp,
+    title = "Mean Temperature<br/>(°C, 2019)",
+    opacity = 1,
+    labFormat = labelFormat(suffix = "°C", digits = 1)
+  ) %>%
+  
+  # Adding title and attribution
+  addControl(
+    html = "<div style='background: rgba(255,255,255,0.9); padding: 10px; border-radius: 5px; font-family: Arial;'>
+              <h3 style='margin: 0; color: #2c3e50;'>Mean Temperature by Region</h3>
+              <p style='margin: 5px 0 0 0; color: #666; font-size: 12px;'>Netherlands, 2019</p>
+            </div>",
+    position = "topleft"
+  ) %>%
+  
+  # Setting view to center on Netherlands
+  setView(lng = 5.2913, lat = 52.1326, zoom = 7) %>%
+  
+  # Adding scale bar
+  addScaleBar(position = "bottomleft", options = scaleBarOptions(imperial = FALSE))
+
 ```
-
-## Control variable: Population density
 
 ## Summary Statistics
 
@@ -170,8 +169,8 @@ print(artistic_plot)
 #| echo: false
 #| message: false
 #| warning: false
-#| tbl-cap: "Summary statistics"
-#| label: tbl-stats
+#| tbl-cap: "Available valid data"
+#| label: tbl-popdata
 
 # Resampling just to make sure the resolutions match
 pop_resampled <- resample(pop2, temp, method = "bilinear")
@@ -242,13 +241,19 @@ html_pixel_table <- pixel %>%
 html_pixel_table
 ```
 
-Although some land use categories such as Inland waters, Wetlands, and Sparse vegetation have a low proportion of valid population pixels (often below 50%), we chose to retain them in the summary statistics table for the sake of completeness and visual consistency.
+Although some land use categories such as Inland waters, Wetlands, and Sparse vegetation have a low proportion of valid population pixels (often below 50%), we chose to retain them in the @tbl-stats table for the sake of completeness and visual consistency.
 
-However, we acknowledge that the population means and correlation values in these categories may be statistically unreliable due to sparse or uneven data coverage. In particular, categories like Marine waters include only a few valid observations, resulting in potentially misleading or exaggerated correlation coefficients.
+However, we acknowledge that the population means and correlation values in these categories may be statistically unreliable due to sparse or uneven data coverage. In particular, categories like Marine waters include only a few valid observations, resulting in potentially misleading or exaggerated correlation coefficients. We document this in the @tbl-popdata.
 
-To address this, we highlighted such rows in the summary table and excluded their population and correlation values from the interactive Leaflet map, to prevent visual misinterpretation while preserving transparency in reporting.
+To address this, we highlighted such rows in the @tbl-stats and excluded their population and correlation values from the @fig-land, to prevent visual misinterpretation while preserving transparency in reporting.
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| tbl-cap: "Summary statistics"
+#| label: tbl-stats
+#| 
 summary_stats <- table_data %>%
   group_by(landuse) %>%
   summarise(
@@ -643,10 +648,12 @@ all_models_gt <- create_gt_all_models(
 all_models_gt
 ```
 
-The analysis of temperature patterns across the Netherlands reveal that areas with higher population density consistently experience elevated temperatures. Model 1 demonstrates that a logarithmic increase in population density corresponds to a 0.031°C increase in temperature.
+The regressions models use artificial surfaces as the baseline reference category for all land use comparisons. This means all land use coefficient should be interpreted relative to the temperature patterns observed in artificial surfaces. The analysis of temperature patterns across the Netherlands reveal that areas with higher population density consistently experience elevated temperatures. Model 1 demonstrates that a logarithmic increase in population density corresponds to a 0.031°C increase in temperature in the Model 1 and 0.027°C in the full model.
 
-If we take a look at the Model 2, where we differenciate between different land use types, we can see that agricultural areas show slightly elevated temperatures, while forested and semi-natural areas provide significant cooling effects, reducing temperatures by approximately 0.045°C. Water bodies also contribute to local cooling, though to a lesser extent than forests. Wetlands show no significant temperature deviation from the baseline, suggesting they maintain relatively neutral thermal characteristics.
+Relative to artificial surfaces, different land use types exhibit distinct temperature patterns. Agricultural areas show slightly higher temperatures (+0.009-0.022°C) compared to artificial surfaces, suggesting similar thermal characteristics between urban and agricultural environments. In contrast, forested and semi-natural areas provide significant cooling benefits, with temperatures 0.045-0.046°C lower than artificial surfaces. Water bodies also demonstrate cooling effects, particularly pronounced in the full model (-0.125°C), while wetlands show no significant temperature difference from artificial surfaces.
 
-The most interesting findings emerge from the interaction between population density and land use type in the full model. Water bodies demonstrate the strongest interaction effect, where populated areas near water experience amplified warming despite water's typical cooling properties. Similarly, forested areas with higher population density show increased temperatures, suggesting that human development can override the natural cooling benefits of vegetation. Agricultural areas exhibit a weaker but still significant interaction, while wetlands appear to buffer against population-related temperature increases, showing no significant interaction effect.
+The interaction effects in the full model reveal how population density affects temperature differently across land use types compared to artificial surfaces. Water bodies show the strongest interaction effect (0.076°C), meaning that the population-temperature relationship is much steeper near water bodies than in built environments. Similarly, forested areas (0.041°C) and agricultural areas (0.026°C) show positive interactions, indicating that these land uses are more sensitive to population-related warming than artificial surfaces. Wetlands show no significant interaction effect, suggesting they respond similarly to population pressure as built environments.
 
-These results indicate that land use type serves as an important moderator in the population-temperature relationship. While the overall explanatory power remains modest, with R2 values between 0.007 and 0.016, the findings demonstrate that the urban heat island effect varies significantly depending on the surrounding land use context. This suggests that urban planning strategies should consider not just population density but also the thermal characteristics of different land use types when addressing local climate impacts.
+These findings suggest that while natural land uses typically provide thermal benefits compared to artificial surfaces, they may be more vulnerable to population-related warming effects. The results highlight that the cooling advantages of forests and water bodies can be disproportionately affected by increased population density, making their preservation in low-density areas crucial for maintaining local climate benefits.
+
+# References
