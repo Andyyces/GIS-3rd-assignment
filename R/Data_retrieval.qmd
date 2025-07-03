@@ -1,5 +1,5 @@
 ---
-title: "3rd-Assignment"
+title: "Data Retrieval"
 author: "Andrea Češková, Tobias Gruner, Tuan Linh Tran"
 format: html
 editor: visual
@@ -36,7 +36,7 @@ reticulate,
   tidyr,
   patchwork
 )
-here::i_am("R/3rd-Assignment.qmd")
+here::i_am("R/Data_retrieval.qmd")
 ```
 
 # Introduction
