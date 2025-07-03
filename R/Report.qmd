@@ -203,6 +203,52 @@ table_data <- table_data %>%
 # Log-transform population due to skewness (add 1 to handle zeros)
 table_data$log_population <- log(table_data$population + 1)
 
+# Summarize pixel statistics by land use category
+pixel <- table_data %>%
+  group_by(landuse) %>%
+  summarise(
+    total_pixels = n(),
+    valid_pop_pixels = sum(!is.na(population)),
+    percent_valid = round(100 * valid_pop_pixels / total_pixels, 1),
+    .groups = "drop"
+  ) %>%
+  rename(
+    `Land Use Type` = landuse,
+    `Total Pixels` = total_pixels,
+    `Valid Population Pixels` = valid_pop_pixels,
+    `% Valid` = percent_valid
+  )
+
+html_pixel_table <- pixel %>%
+  kable(format = "html", 
+        escape = FALSE,
+        align = c("l", "r", "r", "r")) %>%  # 4 cột: landuse, total, valid, percent
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = FALSE,
+    position = "center",
+    font_size = 14
+  ) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#4a6fa5") %>%
+  column_spec(1, bold = TRUE, width = "180px") %>%       # landuse
+  column_spec(2:4, width = "100px") %>%                  # numeric columns
+  footnote(
+    general = "Calculated using population raster with NA values removed.",
+    general_title = "Note: ",
+    footnote_as_chunk = TRUE
+  )
+
+# Display the table
+html_pixel_table
+```
+
+Although some land use categories such as Inland waters, Wetlands, and Sparse vegetation have a low proportion of valid population pixels (often below 50%), we chose to retain them in the summary statistics table for the sake of completeness and visual consistency.
+
+However, we acknowledge that the population means and correlation values in these categories may be statistically unreliable due to sparse or uneven data coverage. In particular, categories like Marine waters include only a few valid observations, resulting in potentially misleading or exaggerated correlation coefficients.
+
+To address this, we highlighted such rows in the summary table and excluded their population and correlation values from the interactive Leaflet map, to prevent visual misinterpretation while preserving transparency in reporting.
+
+```{r}
 summary_stats <- table_data %>%
   group_by(landuse) %>%
   summarise(
@@ -236,6 +282,18 @@ summary_stats_formatted <- summary_stats %>%
     "Correlation temperature ~ population" = correlation
   )
 
+# Step 3: Identify rows that may contain biased data (due to sparse population coverage)
+suspicious_types <- c(
+  "Inland waters", 
+  "Inland wetlands", 
+  "Maritime wetlands", 
+  "Open spaces with little or no vegetation", 
+  "Marine waters"
+)
+
+# Get row indices for those suspicious land use types (after renaming)
+rows_to_highlight <- which(summary_stats_formatted$`Land Use Type` %in% suspicious_types)
+
 # Adding formatting with kableExtra
 html_table <- summary_stats_formatted %>%
   kable(format = "html", 
@@ -248,6 +306,7 @@ html_table <- summary_stats_formatted %>%
     font_size = 14
   ) %>%
   row_spec(0, bold = TRUE, color = "white", background = "#4a6fa5") %>%
+  row_spec(rows_to_highlight, background = "#fff3cd") %>% 
   column_spec(1, bold = TRUE, width = "150px") %>%
   column_spec(2:6, width = "120px") %>%
   footnote(
@@ -280,22 +339,41 @@ summary_stats_sf <- summary_stats %>%
   left_join(label2_geom, by = c("landuse" = "Label2")) %>%
   st_as_sf()
 
-# 4. Create popup content for each polygon
-popup_text <- paste0(
-  "<strong>Land Use:</strong> ", summary_stats_sf$landuse, "<br>",
-  "<strong>Mean Temp:</strong> ", round(summary_stats_sf$mean_temp, 2), " °C<br>",
-  "<strong>Mean Pop:</strong> ", round(summary_stats_sf$mean_pop / 0.01, 0), " people/km²<br>",
-  "<strong>Correlation:</strong> ", round(summary_stats_sf$correlation, 2)
+# 4. Define land use types with low valid population coverage
+sparse_landuse <- c("Inland waters", "Inland wetlands", "Maritime wetlands", 
+                    "Open spaces with little or no vegetation", "Marine waters")
+
+# 5. Create popup content conditionally
+popup_text <- ifelse(summary_stats_sf$landuse %in% sparse_landuse,
+  # CASE 1: Sparse land use → show Land Use + Mean Temp + warning
+  paste0(
+    "<strong>Land Use:</strong> ", summary_stats_sf$landuse, "<br>",
+    "<strong>Mean Temp:</strong> ", round(summary_stats_sf$mean_temp, 2), " °C<br>",
+    "<em>Population and correlation data omitted due to sparse coverage.</em>"
+  ),
+  # CASE 2: All info available
+  paste0(
+    "<strong>Land Use:</strong> ", summary_stats_sf$landuse, "<br>",
+    "<strong>Mean Temp:</strong> ", round(summary_stats_sf$mean_temp, 2), " °C<br>",
+    "<strong>Mean Pop:</strong> ", round(summary_stats_sf$mean_pop / 0.01, 0), " people/km²<br>",
+    "<strong>Correlation:</strong> ", round(summary_stats_sf$correlation, 2)
+  )
 )
 
-# 5. Define color palette for correlation values
-pal <- colorNumeric(palette = "viridis", domain = summary_stats_sf$correlation)
+# 6. Replace correlation with NA if land use is sparse
+summary_stats_sf <- summary_stats_sf %>%
+  mutate(
+    correlation_display = ifelse(landuse %in% sparse_landuse, NA, correlation)
+  )
 
-# 6. Create interactive map using Leaflet
+# 7. Update palette to use this new column
+pal <- colorNumeric(palette = "viridis", domain = summary_stats_sf$correlation_display)
+
+# 8. Use correlation_display for fill color
 leaflet(summary_stats_sf) %>%
   addProviderTiles("CartoDB.Positron") %>%  
   addPolygons(
-    fillColor = ~pal(correlation),
+    fillColor = ~pal(correlation_display),
     fillOpacity = 0.7,
     color = "white",
     weight = 1,
@@ -305,12 +383,11 @@ leaflet(summary_stats_sf) %>%
   ) %>%
   addLegend(
     "bottomright",
-     pal = pal,
-    values = ~correlation,
+    pal = pal,
+    values = ~correlation_display,
     title = "Correlation (Temp ~ Pop)",
     opacity = 1
-)
-
+  )
 ```
 
 # Regression models
