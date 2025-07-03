@@ -1,5 +1,5 @@
 ---
-title: "Data Retrieval"
+title: "Data Download"
 author: "Andrea Češková, Tobias Gruner, Tuan Linh Tran"
 format: html
 editor: visual
@@ -15,6 +15,7 @@ pacman::p_load(
   ggplot2,
  keyring,
  ecmwfr,
+ readxl,
   dplyr,
 reticulate,
   geodata,
@@ -36,7 +37,7 @@ reticulate,
   tidyr,
   patchwork
 )
-here::i_am("R/Data_retrieval.qmd")
+here::i_am("R/Data_download.qmd")
 ```
 
 # Introduction
@@ -45,7 +46,7 @@ We examine the correlation between population density and temperature across dif
 
 # Data
 
-IMPORTANT: To download land use data you have to register here <https://land.copernicus.eu/en> for creating an API token. Then please save all the token information provided in a token.json which is in the project folder!
+IMPORTANT: To download land use data you have to register here <https://land.copernicus.eu/en> for creating an API token. Then please save all the token information provided in a token.json!
 
 ```{r Check for token.json}
 
@@ -67,6 +68,12 @@ nld_2_sf <- st_as_sf(nld_2)
 ### Population Density
 
 ```{r}
+# COMMENT TOBI: @Ling Where did you got the fine grained data from? I only found ~100m resolution for population density. However, the resolution of our temperature data set ist ~ 1km, so do we really need such fine grained data at this point? 
+
+# pop <- raster(here("data","raw", "population_nld_2019-07-01_geotiff", "population_nld_2019-07-01.tif"))
+
+# pop
+# plot(pop)
 if (!dir.exists(here("data/raw"))) {
   dir.create(here("data/raw"), recursive = TRUE)
 }
@@ -124,7 +131,8 @@ writeRaster(temp_masked, here("data", "temp.nc"), overwrite=TRUE)
 ### Land Cover
 
 ```{r Land Use vector API}
-# Download as vector data
+# I download the data as vector data as I would assume that it is easier for later calculation. But I haven't thought about it in detail.
+
 
 #1st step search for UUID of DataSet
 base_url <- "https://land.copernicus.eu/api/@search"
@@ -292,56 +300,27 @@ file.remove(here("data","raw", "CORINE_Land_Cover_2018.zip"))
 
 clc_nl <- st_read(here("data", "raw", "Corine_Land_Cover_2018", "Results", "U2018_CLC2018_V2020_20u1.gdb"))
 
-# Add labels for CODE_18
-code_labels <- c(
-  "111" = "Continuous urban fabric",
-  "112" = "Discontinuous urban fabric",
-  "121" = "Industrial or commercial units",
-  "122" = "Road and rail networks and associated land",
-  "123" = "Port areas",
-  "124" = "Airports",
-  "131" = "Mineral extraction sites",
-  "132" = "Dump sites",
-  "133" = "Construction sites",
-  "141" = "Green urban areas",
-  "142" = "Sport and leisure facilities",
-  "211" = "Non-irrigated arable land",
-  "212" = "Permanently irrigated land",
-  "213" = "Rice fields",
-  "221" = "Vineyards",
-  "222" = "Fruit trees and berry plantations",
-  "223" = "Olive groves",
-  "231" = "Pastures",
-  "241" = "Annual crops associated with permanent crops",
-  "242" = "Complex cultivation patterns",
-  "243" = "Land principally occupied by agriculture, with significant areas of natural vegetation",
-  "244" = "Agro-forestry areas",
-  "311" = "Broad-leaved forest",
-  "312" = "Coniferous forest",
-  "313" = "Mixed forest",
-  "321" = "Natural grasslands",
-  "322" = "Moors and heathland",
-  "323" = "Sclerophyllous vegetation",
-  "324" = "Transitional woodland-shrub",
-  "331" = "Beaches, dunes, sands",
-  "332" = "Bare rocks",
-  "333" = "Sparsely vegetated areas",
-  "334" = "Burnt areas",
-  "335" = "Glaciers and perpetual snow",
-  "411" = "Inland marshes",
-  "412" = "Peat bogs",
-  "421" = "Salt marshes",
-  "422" = "Salines",
-  "423" = "Intertidal flats",
-  "511" = "Water courses",
-  "512" = "Water bodies",
-  "521" = "Coastal lagoons",
-  "522" = "Estuaries",
-  "523" = "Sea and ocean"
-)
 
-clc_nl$code_label <- code_labels[as.character(clc_nl$Code_18)]
+# Way to add all 3 labels directly from the xls file
+unzip(here("data","raw","Corine_Land_Cover_2018","Results","U2018_CLC2018_V2020_20u1_doc.zip"), exdir = here("data","raw","Corine_Land_Cover_2018"))
 
+# Removing the old zip file
+file.remove(here("data","raw","Corine_Land_Cover_2018","Results","U2018_CLC2018_V2020_20u1_doc.zip"))
+
+# Reading the file
+clc_labels <- read_excel(here("data","raw","Corine_Land_Cover_2018","Info","Legend","Vector","clc_legend.xls"))
+
+# Saving separately each level
+code_labels1 <- setNames(clc_labels$LABEL1, as.character(clc_labels$CLC_CODE))
+code_labels2 <- setNames(clc_labels$LABEL2, as.character(clc_labels$CLC_CODE))
+code_labels3 <- setNames(clc_labels$LABEL3, as.character(clc_labels$CLC_CODE))
+
+# Applying all 3 to clc_nl
+clc_nl$Label1 <- code_labels1[as.character(clc_nl$Code_18)]
+clc_nl$Label2 <- code_labels2[as.character(clc_nl$Code_18)]
+clc_nl$Label3 <- code_labels3[as.character(clc_nl$Code_18)]
+
+# Writing the labeled spatial data with all labels
 st_write(clc_nl, here("data", "clc_nl.gpkg"), delete_layer = TRUE)
 ```
 
@@ -390,14 +369,14 @@ clc_nl_sf <- st_as_sf(clc_nl)
 # Plotting for understanding data
 plot(pop2)
 ggplot() +
-  geom_raster(data=temp_masked_df, aes(x=x, y=y, fill=tas)) +
+  geom_raster(data=temp_df, aes(x=x, y=y, fill=Band1)) +
   scale_fill_viridis_c(option="viridis", name="Temperature (2019)") +
   geom_sf(data=nld_2_sf, fill=NA, color="black", size=0.5)+
   theme_minimal()
 
 # Plot clc
-top_labels <- names(sort(tapply(clc_nl_sf$Area_Ha, clc_nl_sf$code_label, sum), decreasing = TRUE))[1:7]
-clc_nl_sf$filtered_label <- ifelse(clc_nl_sf$code_label %in% top_labels, clc_nl_sf$code_label, "Others")
+top_labels <- names(sort(tapply(clc_nl_sf$Area_Ha, clc_nl_sf$Label1, sum), decreasing = TRUE))[1:7]
+clc_nl_sf$filtered_label <- ifelse(clc_nl_sf$Label1 %in% top_labels, clc_nl_sf$Label1, "Others")
 
 palette_clc <- hsv(h = seq(0, 1-1/length(unique(clc_nl_sf$filtered_label)), length.out = length(unique(clc_nl_sf$filtered_label))),
                    s = 0.6, v = 0.9)
