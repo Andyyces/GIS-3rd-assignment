@@ -20,6 +20,6 @@ This repository was created to collaborate on the 3rd Assignment in the "Introdu
 
 ## How to run the analysis
 
-1.  The empirical analysis requries the 4 different datasets as described above. The code to download those can be found in `/R/3rd-Assignment.qmd` . All the datasets used are publicly accessible. The data on Land use from Corine is downloaded using API token. This token can be generated after creating an account. After generating, the .json token file should be saved to `/GIS-3rd-Assignment/` as `token.json` . Then the code can be run.
+1.  The empirical analysis requries the 4 different datasets as described above. The code to download those can be found in `/R/Data_download.qmd` . All the datasets used are publicly accessible. The data on Land use from Corine is downloaded using API token. This token can be generated after creating an account. After generating, the .json token file should be saved to `/GIS-3rd-Assignment/` as `token.json` . Then the code can be run.
 
 2.  Our analysis can be found in the `/R/Report.qmd` file, which contains source code. This can be also found as a rendered file: `/R/Report.html`
